@@ -39,6 +39,7 @@ class ImageResponse(BaseModel):
     height_px: int | None
     generation_status: str
     generation_duration_ms: int | None
+    generation_error: str | None
     retry_count: int
     download_url: str | None
     created_at: datetime
@@ -50,3 +51,4 @@ class ImageStatusResponse(BaseModel):
     id: UUID
     generation_status: str
     generation_task_id: str | None
+    generation_error: str | None = None

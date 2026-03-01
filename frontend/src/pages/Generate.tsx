@@ -37,7 +37,7 @@ export function Generate() {
             setIsGenerating(false);
          } else if (status === 'failed') {
             setResultImage({ url: '', status: 'failed' });
-            setError('图片生成失败，请稍后重试');
+            setError(statusRes.data.generation_error || '图片生成失败，请稍后重试');
             setIsGenerating(false);
          } else {
             pollTimerRef.current = setTimeout(() => pollStatus(imageId), 3000);

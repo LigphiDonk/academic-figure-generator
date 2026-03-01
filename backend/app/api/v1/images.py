@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
+from app.config import get_settings
 from app.core.exceptions import (
     BadRequestException,
     ForbiddenException,
@@ -19,6 +20,7 @@ from app.dependencies import get_current_active_user, get_db, get_storage_servic
 from app.models.image import Image
 from app.models.project import Project
 from app.models.prompt import Prompt
+from app.models.system_settings import SystemSettings
 from app.models.user import User
 from app.schemas.image import (
     ImageDirectGenerateRequest,
@@ -88,9 +90,30 @@ def _image_to_response(image: Image, download_url: str | None = None) -> ImageRe
         height_px=image.height_px,
         generation_status=image.generation_status,
         generation_duration_ms=image.generation_duration_ms,
+        generation_error=image.generation_error,
         retry_count=image.retry_count,
         download_url=download_url,
         created_at=image.created_at,
+    )
+
+async def _ensure_nanobanana_key_available(user: User, db: AsyncSession) -> None:
+    """Fail fast if neither BYOK nor platform NanoBanana key is configured."""
+    settings = get_settings()
+    if user.nanobanana_api_key_enc:
+        return
+    if settings.NANOBANANA_API_KEY:
+        return
+    system_key = (
+        await db.execute(
+            select(SystemSettings.nanobanana_api_key_enc).where(SystemSettings.id == 1)
+        )
+    ).scalar_one_or_none()
+    if system_key:
+        return
+    raise BadRequestException(
+        "未配置图片生成 Key：请在服务器环境变量设置 NANOBANANA_API_KEY，"
+        "或在管理员系统设置中配置系统 Key，"
+        "或在用户设置中填写 BYOK（NanoBanana API Key）。"
     )
 
 
@@ -115,6 +138,7 @@ async def generate_image_from_prompt(
     Creates an Image record in pending state and dispatches a Celery task.
     """
     prompt = await _get_owned_prompt(prompt_id, user, db)
+    await _ensure_nanobanana_key_available(user, db)
 
     if not prompt.active_prompt:
         raise BadRequestException(
@@ -176,6 +200,7 @@ async def generate_image_direct(
     If project_id is not provided, a default project is auto-created for the user.
     """
     project_id = data.project_id
+    await _ensure_nanobanana_key_available(user, db)
 
     if project_id is None:
         # Auto-create or reuse a default project for direct generation
@@ -290,6 +315,7 @@ async def get_image_status(
         id=image.id,
         generation_status=image.generation_status,
         generation_task_id=image.generation_task_id,
+        generation_error=image.generation_error,
     )
 
 
@@ -313,6 +339,7 @@ async def edit_image(
     image generation API.
     """
     source_image = await _get_owned_image(image_id, user, db)
+    await _ensure_nanobanana_key_available(user, db)
 
     # Determine the reference image path
     reference_path: str | None = source_image.storage_path

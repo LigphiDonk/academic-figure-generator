@@ -97,6 +97,11 @@ class Image(Base, TimestampMixin):
         Integer,
         nullable=True,
     )
+    generation_error: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Failure reason for generation (best-effort).",
+    )
     final_prompt_sent: Mapped[Optional[str]] = mapped_column(
         Text,
         nullable=True,

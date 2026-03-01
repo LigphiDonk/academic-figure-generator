@@ -16,6 +16,10 @@ cp .env.docker.example .env
 
 # 编辑 .env：至少改 POSTGRES_PASSWORD / MINIO_SECRET_KEY / SECRET_KEY / ENCRYPTION_MASTER_KEY
 # 注意：API_V1_PREFIX 建议保持为 `/api/v1`（不要以 `/` 结尾）
+# 如果要直接生成图片：三选一即可
+# 1) 管理员后台 → 系统设置：配置 NanoBanana 系统 Key（推荐）
+# 2) `.env`：配置 `NANOBANANA_API_KEY`（平台统一 Key）
+# 3) 用户设置：填写 BYOK Key（仅该用户可用）
 ```
 
 启动：

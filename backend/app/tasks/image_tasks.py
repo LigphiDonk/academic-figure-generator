@@ -142,6 +142,7 @@ def _call_nanobanana_api(
     payload: dict[str, Any],
     api_key: str,
     timeout: float,
+    api_base_url: str,
 ) -> str:
     """
     POST to NanoBanana Gemini-style image generation endpoint.
@@ -150,7 +151,7 @@ def _call_nanobanana_api(
     Raises httpx.HTTPStatusError on non-2xx responses.
     """
     endpoint = (
-        f"{NANOBANANA_API_BASE.rstrip('/')}"
+        f"{api_base_url.rstrip('/')}"
         "/v1beta/models/gemini-3-pro-image-preview:generateContent"
     )
     headers = {
@@ -173,6 +174,19 @@ def _call_nanobanana_api(
         ) from exc
 
     return b64_image
+
+
+def _get_system_nanobanana_settings(db: Session) -> tuple[str | None, str | None]:
+    """Fetch system NanoBanana settings (encrypted key + base URL) from DB."""
+    row = db.execute(
+        text(
+            "SELECT nanobanana_api_key_enc, nanobanana_api_base_url "
+            "FROM system_settings WHERE id = 1"
+        )
+    ).fetchone()
+    if not row:
+        return None, None
+    return row[0], row[1]
 
 
 def _get_png_dimensions(png_bytes: bytes) -> tuple[int, int]:
@@ -288,6 +302,7 @@ def generate_image_task(
         db.execute(
             text(
                 "UPDATE images SET generation_status = 'processing', "
+                "generation_error = NULL, "
                 "updated_at = :now WHERE id = :img_id"
             ),
             {"now": now, "img_id": image_id},
@@ -303,20 +318,27 @@ def generate_image_task(
         )
         byok_row = byok_result.fetchone()
         encrypted_key = byok_row[0] if byok_row else None
+        system_key_enc, system_api_base_url = _get_system_nanobanana_settings(db)
+        effective_api_base_url = system_api_base_url or NANOBANANA_API_BASE
 
         if encrypted_key:
             api_key = decrypt_api_key(encrypted_key)
             key_source = "byok"
             logger.info("Using BYOK NanoBanana key for user_id=%s", user_id)
-        else:
+        elif NANOBANANA_API_KEY:
             api_key = NANOBANANA_API_KEY
             key_source = "platform"
-            if not api_key:
-                raise ValueError(
-                    "No NanoBanana API key available: set NANOBANANA_API_KEY env var "
-                    "or add a BYOK key for this user."
-                )
-            logger.info("Using platform NanoBanana key")
+            logger.info("Using platform NanoBanana key from env")
+        elif system_key_enc:
+            api_key = decrypt_api_key(system_key_enc)
+            key_source = "platform"
+            logger.info("Using platform NanoBanana key from system settings")
+        else:
+            raise ValueError(
+                "No NanoBanana API key available: set NANOBANANA_API_KEY env var, "
+                "or configure system key in admin settings, "
+                "or add a BYOK key for this user."
+            )
 
         # ------------------------------------------------------------------
         # 3. Build API payload (Gemini-style, API handles resolution)
@@ -338,9 +360,14 @@ def generate_image_task(
         api_timeout = float(soft_limit_s - 30)  # 30 s buffer for upload
         logger.info(
             "Calling NanoBanana API | endpoint=%s timeout=%.0fs",
-            NANOBANANA_API_BASE, api_timeout,
+            effective_api_base_url, api_timeout,
         )
-        b64_image = _call_nanobanana_api(payload, api_key, timeout=api_timeout)
+        b64_image = _call_nanobanana_api(
+            payload,
+            api_key,
+            timeout=api_timeout,
+            api_base_url=effective_api_base_url,
+        )
 
         # ------------------------------------------------------------------
         # 6. Decode base64 PNG
@@ -374,6 +401,7 @@ def generate_image_task(
                     file_size_bytes = :file_size_bytes,
                     resolution = :resolution,
                     aspect_ratio = :aspect_ratio,
+                    generation_error = NULL,
                     updated_at = :now
                 WHERE id = :img_id
                 """
@@ -480,8 +508,11 @@ def generate_image_task(
 
     except Exception as exc:
         logger.error(
-            "Unexpected error in generate_image_task | image_id=%s\n%s",
-            image_id, traceback.format_exc(),
+            "Unexpected error in generate_image_task | image_id=%s | %s: %s\n%s",
+            image_id,
+            type(exc).__name__,
+            exc,
+            traceback.format_exc(),
         )
         _mark_image_failed(db, image_id, str(exc))
         raise
@@ -500,9 +531,10 @@ def _mark_image_failed(db: Session, image_id: str, reason: str) -> None:
         db.execute(
             text(
                 "UPDATE images SET generation_status = 'failed', "
+                "generation_error = :reason, "
                 "updated_at = :now WHERE id = :img_id"
             ),
-            {"now": datetime.now(UTC), "img_id": image_id},
+            {"now": datetime.now(UTC), "img_id": image_id, "reason": reason[:2000]},
         )
         db.commit()
     except Exception:
