@@ -5,6 +5,7 @@ import { FileUp, FileText, Image as ImageIcon, Send, RefreshCw, Download } from 
 import { api } from '../lib/api';
 import { useProjectStore } from '../store/projectStore';
 import { fetchAuthedBlob, triggerBrowserDownload } from '../lib/blob';
+import { useAuthStore } from '../store/authStore';
 
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
@@ -27,6 +28,7 @@ export function ProjectWorkspace() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const { currentProject, setCurrentProject } = useProjectStore();
+    const token = useAuthStore((s) => s.token);
 
     const [isLoading, setIsLoading] = useState(true);
     const [documents, setDocuments] = useState<DocumentItem[]>([]);
@@ -47,11 +49,11 @@ export function ProjectWorkspace() {
     const previewUrlsRef = useRef<Record<string, string>>({});
 
     useEffect(() => {
-        if (id) {
+        if (id && token) {
             fetchProjectData(id);
         }
         return () => setCurrentProject(null);
-    }, [id]);
+    }, [id, token]);
 
     useEffect(() => {
         return () => {

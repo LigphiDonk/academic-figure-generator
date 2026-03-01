@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import { FileText, Image as ImageIcon, MessageSquare, Trash2, Plus, RefreshCw, Folder } from 'lucide-react';
 
 import { api } from '../lib/api';
+import { useAuthStore } from '../store/authStore';
 import { useProjectStore } from '../store/projectStore';
 
 import { Button } from '../components/ui/button';
@@ -27,6 +28,7 @@ type CreateProjectValues = z.infer<typeof createProjectSchema>;
 
 export function Projects() {
     const { projects, setProjects } = useProjectStore();
+    const token = useAuthStore((s) => s.token);
     const [isLoading, setIsLoading] = useState(true);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false); // Renamed from isDialogOpen
     const [error, setError] = useState('');
@@ -76,9 +78,16 @@ export function Projects() {
     };
 
     useEffect(() => {
+        // Wait until token is available (zustand persist may hydrate after first render).
+        if (!token) {
+            setProjects([]);
+            setIsLoading(false);
+            return;
+        }
+        setIsLoading(true);
         fetchProjects();
         fetchColorSchemes();
-    }, []);
+    }, [token, setProjects]);
 
     const handleCreateProject = async () => {
         setError('');
