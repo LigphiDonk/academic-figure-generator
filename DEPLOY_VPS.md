@@ -3,7 +3,7 @@
 ## 1) VPS 准备
 
 - 安装 Docker / Docker Compose（按你的发行版官方文档即可）
-- 开放端口：`80`（可选 `443`）
+- 对外只需要开放你的“总反代”使用的端口：通常 `80/443`
 
 ## 2) 首次部署
 
@@ -20,27 +20,28 @@ cp .env.docker.example .env
 启动：
 
 ```bash
-docker compose up -d --build
+# 推荐：本项目 nginx 仅绑定到本机端口，由你 VPS 上的“总反代”(占用 80/443) 转发过来
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
 访问：
-- Web: `http://<VPS_IP>/`
-- API: `http://<VPS_IP>/api/v1/docs`（如果 DEBUG=true 才开放）
+- 本机验证：`http://127.0.0.1:${APP_HTTP_PORT:-8082}/`
+- 对外访问：用你的域名（由总反代转发到 `127.0.0.1:${APP_HTTP_PORT:-8082}`）
 
 ## 3) 常用运维
 
 查看日志：
 
 ```bash
-docker compose logs -f --tail=200 backend
-docker compose logs -f --tail=200 celery-worker
-docker compose logs -f --tail=200 minio
+docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f --tail=200 backend
+docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f --tail=200 celery-worker
+docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f --tail=200 minio
 ```
 
 重启服务：
 
 ```bash
-docker compose restart
+docker compose -f docker-compose.yml -f docker-compose.prod.yml restart
 ```
 
 ## 4) 通过 GitHub 快速更新
@@ -50,10 +51,9 @@ docker compose restart
 ```bash
 cd academic-figure-generator
 git pull
-docker compose up -d --build
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
 说明：
 - 这会重新 build 前端（在 `nginx` 镜像里多阶段构建）并重启相关容器。
 - 数据（Postgres/Redis/MinIO）都在 Docker volume 里，不会因为更新丢失。
-
