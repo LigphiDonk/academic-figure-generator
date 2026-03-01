@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Textarea } from '../components/ui/textarea';
@@ -13,8 +13,18 @@ export function Generate() {
    const [aspectRatio, setAspectRatio] = useState('16:9');
    const [isGenerating, setIsGenerating] = useState(false);
    const [error, setError] = useState<string | null>(null);
-   const [resultImage, setResultImage] = useState<{ url: string; status: 'pending' | 'completed' | 'failed' } | null>(null);
+   const [resultImage, setResultImage] = useState<{ url: string; filename: string; status: 'pending' | 'completed' | 'failed' } | null>(null);
    const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+   const blobUrlRef = useRef<string | null>(null);
+
+   useEffect(() => {
+      return () => {
+         if (blobUrlRef.current) {
+            URL.revokeObjectURL(blobUrlRef.current);
+            blobUrlRef.current = null;
+         }
+      };
+   }, []);
 
    const stopPolling = useCallback(() => {
       if (pollTimerRef.current) {
@@ -29,14 +39,23 @@ export function Generate() {
          const status = statusRes.data.generation_status;
 
          if (status === 'completed') {
-            const imageRes = await api.get(`/images/${imageId}`);
+            const blobRes = await api.get(`/images/${imageId}/download`, { responseType: 'blob' });
+            const contentType = (blobRes.headers?.['content-type'] as string | undefined) || (blobRes.data?.type as string | undefined) || '';
+            const ext = contentType.includes('jpeg') ? 'jpg' : contentType.includes('png') ? 'png' : 'bin';
+            const filename = `academic-figure.${ext}`;
+            const blobUrl = URL.createObjectURL(blobRes.data);
+
+            if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+            blobUrlRef.current = blobUrl;
+
             setResultImage({
-               url: imageRes.data.download_url || '',
+               url: blobUrl,
+               filename,
                status: 'completed',
             });
             setIsGenerating(false);
          } else if (status === 'failed') {
-            setResultImage({ url: '', status: 'failed' });
+            setResultImage({ url: '', filename: 'academic-figure.png', status: 'failed' });
             setError(statusRes.data.generation_error || '图片生成失败，请稍后重试');
             setIsGenerating(false);
          } else {
@@ -52,7 +71,7 @@ export function Generate() {
       if (!prompt.trim() || !user) return;
       stopPolling();
       setIsGenerating(true);
-      setResultImage({ url: '', status: 'pending' });
+      setResultImage({ url: '', filename: 'academic-figure.png', status: 'pending' });
       setError(null);
 
       try {
@@ -148,7 +167,7 @@ export function Generate() {
                   {resultImage?.status === 'completed' && resultImage.url && (
                      <CardFooter className="bg-muted/30 pt-4 border-t flex justify-end">
                         <Button variant="secondary" asChild>
-                           <a href={resultImage.url} download="academic-figure.png" target="_blank" rel="noopener noreferrer">
+                           <a href={resultImage.url} download={resultImage.filename} target="_blank" rel="noopener noreferrer">
                               <Download className="w-4 h-4 mr-2" />
                               下载高清原图
                            </a>
