@@ -43,7 +43,10 @@ export function Login() {
         <div className="min-h-screen flex items-center justify-center bg-muted/30">
             <Card className="w-full max-w-md">
                 <CardHeader className="space-y-1 text-center">
-                    <CardTitle className="text-2xl font-bold text-primary">FigGenerator</CardTitle>
+                    <div className="flex justify-center mb-2">
+                        <img src="/logo.jpg" alt="Logo" className="w-16 h-16 rounded-lg" />
+                    </div>
+                    <CardTitle className="text-2xl font-bold text-primary">科研配图生成器</CardTitle>
                     <CardDescription>请输入您的邮箱和密码登录账号</CardDescription>
                 </CardHeader>
                 <form onSubmit={handleLogin}>

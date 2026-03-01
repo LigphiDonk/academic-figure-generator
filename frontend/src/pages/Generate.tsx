@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Loader2, Wand2, Image as ImageIcon, Download, AlertCircle } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { api } from '../lib/api';
+import { fetchAuthedBlob } from '../lib/blob';
 
 export function Generate() {
    const { user } = useAuthStore();
@@ -39,11 +40,9 @@ export function Generate() {
          const status = statusRes.data.generation_status;
 
          if (status === 'completed') {
-            const blobRes = await api.get(`/images/${imageId}/download`, { responseType: 'blob' });
-            const contentType = (blobRes.headers?.['content-type'] as string | undefined) || (blobRes.data?.type as string | undefined) || '';
-            const ext = contentType.includes('jpeg') ? 'jpg' : contentType.includes('png') ? 'png' : 'bin';
+            const { blob, ext } = await fetchAuthedBlob(`/images/${imageId}/download`);
             const filename = `academic-figure.${ext}`;
-            const blobUrl = URL.createObjectURL(blobRes.data);
+            const blobUrl = URL.createObjectURL(blob);
 
             if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
             blobUrlRef.current = blobUrl;

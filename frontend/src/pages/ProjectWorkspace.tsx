@@ -4,6 +4,7 @@ import { FileUp, FileText, Image as ImageIcon, Send, RefreshCw, Download } from 
 
 import { api } from '../lib/api';
 import { useProjectStore } from '../store/projectStore';
+import { fetchAuthedBlob, triggerBrowserDownload } from '../lib/blob';
 
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
@@ -40,6 +41,7 @@ export function ProjectWorkspace() {
 
     // Prompt Generation state
     const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
+    const [isDownloading, setIsDownloading] = useState<string | null>(null);
 
     useEffect(() => {
         if (id) {
@@ -113,6 +115,20 @@ export function ProjectWorkspace() {
             setIsUploading(false);
             setUploadProgress(0);
             if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+
+    const handleDownloadImage = async (imageId: string) => {
+        try {
+            setIsDownloading(imageId);
+            const { blob, ext } = await fetchAuthedBlob(`/images/${imageId}/download`);
+            triggerBrowserDownload(blob, `academic-figure-${imageId}.${ext}`);
+        } catch (err: any) {
+            console.error('Download failed', err);
+            const detail = err?.response?.data?.detail;
+            alert(detail ? `下载失败：${detail}` : '下载失败，请稍后重试。');
+        } finally {
+            setIsDownloading(null);
         }
     };
 
@@ -347,18 +363,26 @@ export function ProjectWorkspace() {
                                     {images.map(img => (
                                         <Card key={img.id} className="overflow-hidden">
                                             <div className="aspect-video bg-muted relative">
-                                                {img.status === 'completed' && img.url ? (
-                                                    <img src={img.url} alt="Generated Figure" className="w-full h-full object-cover" />
+                                                {img.generation_status === 'completed' ? (
+                                                    <div className="absolute inset-0 flex items-center justify-center flex-col">
+                                                        <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                                                        <span className="mt-2 text-sm font-medium">已生成</span>
+                                                    </div>
                                                 ) : (
                                                     <div className="absolute inset-0 flex items-center justify-center flex-col">
-                                                        {img.status === 'processing' ? <RefreshCw className="h-8 w-8 animate-spin text-primary" /> : <ImageIcon className="h-8 w-8 text-muted-foreground" />}
-                                                        <span className="mt-2 text-sm font-medium">{img.status}</span>
+                                                        {img.generation_status === 'processing' ? <RefreshCw className="h-8 w-8 animate-spin text-primary" /> : <ImageIcon className="h-8 w-8 text-muted-foreground" />}
+                                                        <span className="mt-2 text-sm font-medium">{img.generation_status}</span>
                                                     </div>
                                                 )}
                                             </div>
                                             <CardFooter className="p-3 bg-muted/20 flex justify-between">
                                                 <span className="text-xs text-muted-foreground">{img.resolution}</span>
-                                                <Button size="sm" variant="ghost" disabled={img.status !== 'completed'}>
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    disabled={img.generation_status !== 'completed' || isDownloading === img.id}
+                                                    onClick={() => handleDownloadImage(img.id)}
+                                                >
                                                     <Download className="h-4 w-4" />
                                                 </Button>
                                             </CardFooter>

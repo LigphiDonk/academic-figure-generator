@@ -29,7 +29,8 @@ export function Layout() {
                 <div className="container mx-auto px-4 h-16 flex items-center justify-between">
                     <div className="flex items-center space-x-8">
                         <Link to="/projects" className="font-bold text-xl flex items-center space-x-2">
-                            <span className="text-primary">FigGenerator</span>
+                            <img src="/logo.jpg" alt="Logo" className="w-7 h-7 rounded" />
+                            <span className="text-primary">科研配图生成器</span>
                         </Link>
                         <nav className="hidden md:flex space-x-4">
                             {navItems.map((item) => (
