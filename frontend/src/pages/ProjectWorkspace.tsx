@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { FileUp, FileText, Image as ImageIcon, Send, RefreshCw, Download } from 'lucide-react';
 
@@ -42,6 +42,9 @@ export function ProjectWorkspace() {
     // Prompt Generation state
     const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
     const [isDownloading, setIsDownloading] = useState<string | null>(null);
+    const [isPreviewing, setIsPreviewing] = useState<Record<string, boolean>>({});
+    const [imagePreviews, setImagePreviews] = useState<Record<string, string>>({});
+    const previewUrlsRef = useRef<Record<string, string>>({});
 
     useEffect(() => {
         if (id) {
@@ -49,6 +52,20 @@ export function ProjectWorkspace() {
         }
         return () => setCurrentProject(null);
     }, [id]);
+
+    useEffect(() => {
+        return () => {
+            // Revoke any blob: URLs we created to avoid memory leaks.
+            for (const url of Object.values(previewUrlsRef.current)) {
+                try {
+                    URL.revokeObjectURL(url);
+                } catch {
+                    // ignore
+                }
+            }
+            previewUrlsRef.current = {};
+        };
+    }, []);
 
     const fetchProjectData = async (projectId: string) => {
         setIsLoading(true);
@@ -85,6 +102,33 @@ export function ProjectWorkspace() {
             setIsLoading(false);
         }
     };
+
+    const ensureImagePreview = useCallback(async (imageId: string) => {
+        if (imagePreviews[imageId]) return;
+        if (isPreviewing[imageId]) return;
+
+        setIsPreviewing(prev => ({ ...prev, [imageId]: true }));
+        try {
+            const { blob } = await fetchAuthedBlob(`/images/${imageId}/download`);
+            const url = URL.createObjectURL(blob);
+
+            // Revoke old one if exists
+            const old = previewUrlsRef.current[imageId];
+            if (old) {
+                try {
+                    URL.revokeObjectURL(old);
+                } catch {
+                    // ignore
+                }
+            }
+            previewUrlsRef.current[imageId] = url;
+            setImagePreviews(prev => ({ ...prev, [imageId]: url }));
+        } catch (err) {
+            console.error('Preview fetch failed', err);
+        } finally {
+            setIsPreviewing(prev => ({ ...prev, [imageId]: false }));
+        }
+    }, [imagePreviews, isPreviewing]);
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -363,10 +407,31 @@ export function ProjectWorkspace() {
                                     {images.map(img => (
                                         <Card key={img.id} className="overflow-hidden">
                                             <div className="aspect-video bg-muted relative">
-                                                {img.generation_status === 'completed' ? (
-                                                    <div className="absolute inset-0 flex items-center justify-center flex-col">
+                                                {img.generation_status === 'completed' && imagePreviews[img.id] ? (
+                                                    <img
+                                                        src={imagePreviews[img.id]}
+                                                        alt="Generated Figure"
+                                                        className="w-full h-full object-cover"
+                                                        onError={() => {
+                                                            // If blob URL is revoked/invalid, allow re-fetch.
+                                                            setImagePreviews(prev => {
+                                                                const next = { ...prev };
+                                                                delete next[img.id];
+                                                                return next;
+                                                            });
+                                                        }}
+                                                    />
+                                                ) : img.generation_status === 'completed' ? (
+                                                    <div className="absolute inset-0 flex items-center justify-center flex-col gap-2">
                                                         <ImageIcon className="h-8 w-8 text-muted-foreground" />
-                                                        <span className="mt-2 text-sm font-medium">已生成</span>
+                                                        <Button
+                                                            size="sm"
+                                                            variant="secondary"
+                                                            disabled={!!isPreviewing[img.id]}
+                                                            onClick={() => ensureImagePreview(img.id)}
+                                                        >
+                                                            {isPreviewing[img.id] ? '加载中...' : '预览'}
+                                                        </Button>
                                                     </div>
                                                 ) : (
                                                     <div className="absolute inset-0 flex items-center justify-center flex-col">
