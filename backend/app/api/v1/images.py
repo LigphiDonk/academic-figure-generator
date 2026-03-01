@@ -3,9 +3,12 @@
 import asyncio
 import json
 import logging
+import mimetypes
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
@@ -95,6 +98,18 @@ def _image_to_response(image: Image, download_url: str | None = None) -> ImageRe
         download_url=download_url,
         created_at=image.created_at,
     )
+
+
+def _normalize_object_name(storage_path: str, bucket: str) -> str:
+    """Normalize stored path to a MinIO object name.
+
+    Backward compatible with older values that were stored as "<bucket>/<object>".
+    """
+    p = storage_path.lstrip("/")
+    prefix = f"{bucket}/"
+    if p.startswith(prefix):
+        return p[len(prefix) :]
+    return p
 
 async def _ensure_nanobanana_key_available(user: User, db: AsyncSession) -> None:
     """Fail fast if neither BYOK nor platform NanoBanana key is configured."""
@@ -293,15 +308,37 @@ async def get_image(
     """Get image metadata and a presigned download URL from MinIO."""
     image = await _get_owned_image(image_id, user, db)
 
-    # Backfill: older records may have `.png` hard-coded; keep working regardless.
     download_url: str | None = None
     if image.storage_path:
-        try:
-            download_url = storage.get_presigned_url(image.storage_path, expires=3600)
-        except Exception:
-            logger.warning("Failed to generate presigned URL for image %s", image.id)
+        # Always serve via API so browsers don't need to resolve `minio:9000`.
+        download_url = f"{get_settings().API_V1_PREFIX}/images/{image.id}/download"
 
     return _image_to_response(image, download_url=download_url)
+
+
+@router.get("/images/{image_id}/download")
+async def download_image(
+    image_id: UUID,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+    storage=Depends(get_storage_service),
+):
+    """Download an image file via the API (proxy from MinIO)."""
+    image = await _get_owned_image(image_id, user, db)
+    if not image.storage_path:
+        raise NotFoundException("Image file not available")
+
+    object_name = _normalize_object_name(image.storage_path, storage.bucket)
+    file_bytes = storage.download_file(object_name)
+
+    guessed_type, _ = mimetypes.guess_type(object_name)
+    media_type = guessed_type or "application/octet-stream"
+    filename = object_name.split("/")[-1] or f"{image_id}"
+
+    # Use inline so <img src="..."> can render; browsers can still save via download attribute.
+    quoted = quote(filename)
+    headers = {"Content-Disposition": f"inline; filename*=UTF-8''{quoted}"}
+    return StreamingResponse(iter([file_bytes]), media_type=media_type, headers=headers)
 
 
 @router.get("/images/{image_id}/status", response_model=ImageStatusResponse)

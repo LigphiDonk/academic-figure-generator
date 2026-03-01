@@ -298,7 +298,7 @@ def _upload_to_minio(image_bytes: bytes, object_name: str, content_type: str) ->
     """
     Upload bytes to MinIO, creating the bucket if it does not exist.
 
-    Returns the full storage path: "<bucket>/<object_name>".
+    Returns the object name (key): "<object_name>".
     """
     bucket = os.environ.get("MINIO_BUCKET_NAME", "academic-figures")
     client = _get_minio_client()
@@ -313,7 +313,7 @@ def _upload_to_minio(image_bytes: bytes, object_name: str, content_type: str) ->
         length=len(image_bytes),
         content_type=content_type,
     )
-    return f"{bucket}/{object_name}"
+    return object_name
 
 
 # ---------------------------------------------------------------------------
