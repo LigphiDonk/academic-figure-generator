@@ -61,6 +61,24 @@ class SystemSettings(Base, TimestampMixin):
         default=Decimal("1.50"),
         comment="Price per generated image in CNY",
     )
+    image_price_cny_1k: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+        default=Decimal("1.50"),
+        comment="Price per 1K image in CNY",
+    )
+    image_price_cny_2k: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+        default=Decimal("1.50"),
+        comment="Price per 2K image in CNY",
+    )
+    image_price_cny_4k: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+        default=Decimal("1.50"),
+        comment="Price per 4K image in CNY",
+    )
     usd_cny_rate: Mapped[Decimal] = mapped_column(
         Numeric(10, 4),
         nullable=False,

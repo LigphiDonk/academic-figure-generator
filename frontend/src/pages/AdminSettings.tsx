@@ -15,6 +15,9 @@ interface SystemSettings {
     nanobanana_api_base_url: string | null;
     nanobanana_model: string | null;
     image_price_cny: number | null;
+    image_price_cny_1k: number | null;
+    image_price_cny_2k: number | null;
+    image_price_cny_4k: number | null;
     usd_cny_rate: number | null;
     claude_input_usd_per_million: number | null;
     claude_output_usd_per_million: number | null;
@@ -34,6 +37,9 @@ export function AdminSettings() {
         nanobanana_api_base_url: null,
         nanobanana_model: null,
         image_price_cny: null,
+        image_price_cny_1k: null,
+        image_price_cny_2k: null,
+        image_price_cny_4k: null,
         usd_cny_rate: null,
         claude_input_usd_per_million: null,
         claude_output_usd_per_million: null,
@@ -47,6 +53,9 @@ export function AdminSettings() {
         nanobanana_api_base_url: '',
         nanobanana_model: '',
         image_price_cny: '',
+        image_price_cny_1k: '',
+        image_price_cny_2k: '',
+        image_price_cny_4k: '',
         usd_cny_rate: '',
         claude_input_usd_per_million: '',
         claude_output_usd_per_million: '',
@@ -69,6 +78,9 @@ export function AdminSettings() {
                 nanobanana_api_base_url: data.nanobanana_api_base_url || '',
                 nanobanana_model: data.nanobanana_model || '',
                 image_price_cny: data.image_price_cny != null ? String(data.image_price_cny) : '',
+                image_price_cny_1k: data.image_price_cny_1k != null ? String(data.image_price_cny_1k) : '',
+                image_price_cny_2k: data.image_price_cny_2k != null ? String(data.image_price_cny_2k) : '',
+                image_price_cny_4k: data.image_price_cny_4k != null ? String(data.image_price_cny_4k) : '',
                 usd_cny_rate: data.usd_cny_rate != null ? String(data.usd_cny_rate) : '',
                 claude_input_usd_per_million: data.claude_input_usd_per_million != null ? String(data.claude_input_usd_per_million) : '',
                 claude_output_usd_per_million: data.claude_output_usd_per_million != null ? String(data.claude_output_usd_per_million) : '',
@@ -96,6 +108,9 @@ export function AdminSettings() {
             payload.nanobanana_model = formData.nanobanana_model || null;
 
             if (formData.image_price_cny !== '') payload.image_price_cny = parseFloat(formData.image_price_cny);
+            if (formData.image_price_cny_1k !== '') payload.image_price_cny_1k = parseFloat(formData.image_price_cny_1k);
+            if (formData.image_price_cny_2k !== '') payload.image_price_cny_2k = parseFloat(formData.image_price_cny_2k);
+            if (formData.image_price_cny_4k !== '') payload.image_price_cny_4k = parseFloat(formData.image_price_cny_4k);
             if (formData.usd_cny_rate !== '') payload.usd_cny_rate = parseFloat(formData.usd_cny_rate);
             if (formData.claude_input_usd_per_million !== '') payload.claude_input_usd_per_million = parseFloat(formData.claude_input_usd_per_million);
             if (formData.claude_output_usd_per_million !== '') payload.claude_output_usd_per_million = parseFloat(formData.claude_output_usd_per_million);
@@ -255,19 +270,47 @@ export function AdminSettings() {
                         <Server className="w-5 h-5" />
                         计费配置
                     </CardTitle>
-                    <CardDescription>配置图片单价、汇率与 Claude Token 单价（按官网价格/每 100 万 Tokens）。</CardDescription>
+                    <CardDescription>配置不同分辨率图片单价、汇率与 Claude Token 单价（按官网价格/每 100 万 Tokens）。</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <div className="space-y-2">
-                        <Label htmlFor="price_image">图片单价（¥/张）</Label>
-                        <Input
-                            id="price_image"
-                            type="number"
-                            step="0.01"
-                            placeholder="1.5"
-                            value={formData.image_price_cny}
-                            onChange={e => setFormData({ ...formData, image_price_cny: e.target.value })}
-                        />
+                        <Label>图片单价（¥/张）</Label>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div className="space-y-1.5">
+                                <Label htmlFor="price_image_1k" className="text-xs text-muted-foreground">1K</Label>
+                                <Input
+                                    id="price_image_1k"
+                                    type="number"
+                                    step="0.01"
+                                    placeholder="1.50"
+                                    value={formData.image_price_cny_1k}
+                                    onChange={e => setFormData({ ...formData, image_price_cny_1k: e.target.value })}
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label htmlFor="price_image_2k" className="text-xs text-muted-foreground">2K</Label>
+                                <Input
+                                    id="price_image_2k"
+                                    type="number"
+                                    step="0.01"
+                                    placeholder="1.50"
+                                    value={formData.image_price_cny_2k}
+                                    onChange={e => setFormData({ ...formData, image_price_cny_2k: e.target.value })}
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label htmlFor="price_image_4k" className="text-xs text-muted-foreground">4K</Label>
+                                <Input
+                                    id="price_image_4k"
+                                    type="number"
+                                    step="0.01"
+                                    placeholder="1.50"
+                                    value={formData.image_price_cny_4k}
+                                    onChange={e => setFormData({ ...formData, image_price_cny_4k: e.target.value })}
+                                />
+                            </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground">如果未填写，将回退到通用单价（兼容旧版本）。</p>
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="price_fx">USD→CNY 汇率</Label>

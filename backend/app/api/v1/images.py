@@ -144,6 +144,25 @@ async def _get_image_price_cny(db: AsyncSession) -> Decimal:
     return Decimal(str(v))
 
 
+async def _get_image_price_cny_for_resolution(db: AsyncSession, resolution: str) -> Decimal:
+    """Return per-resolution image price in CNY with fallback to image_price_cny."""
+    s = (
+        await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
+    ).scalar_one_or_none()
+    fallback = Decimal(str(s.image_price_cny if s and s.image_price_cny is not None else "1.5"))
+    if not s:
+        return fallback
+
+    r = (resolution or "").strip()
+    if r in ("1k", "1K") and getattr(s, "image_price_cny_1k", None) is not None:
+        return Decimal(str(s.image_price_cny_1k))
+    if r in ("4k", "4K") and getattr(s, "image_price_cny_4k", None) is not None:
+        return Decimal(str(s.image_price_cny_4k))
+    if r in ("2k", "2K") and getattr(s, "image_price_cny_2k", None) is not None:
+        return Decimal(str(s.image_price_cny_2k))
+    return fallback
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -167,7 +186,7 @@ async def generate_image_from_prompt(
     prompt = await _get_owned_prompt(prompt_id, user, db)
     await _ensure_nanobanana_key_available(user, db)
 
-    image_price_cny = await _get_image_price_cny(db)
+    image_price_cny = await _get_image_price_cny_for_resolution(db, data.resolution)
     if Decimal(str(user.balance_cny)) < image_price_cny:
         raise BadRequestException(
             f"余额不足：当前余额 ¥{float(user.balance_cny):.2f}，"
@@ -235,7 +254,7 @@ async def generate_image_direct(
     project_id = data.project_id
     await _ensure_nanobanana_key_available(user, db)
 
-    image_price_cny = await _get_image_price_cny(db)
+    image_price_cny = await _get_image_price_cny_for_resolution(db, data.resolution)
     if Decimal(str(user.balance_cny)) < image_price_cny:
         raise BadRequestException(
             f"余额不足：当前余额 ¥{float(user.balance_cny):.2f}，"

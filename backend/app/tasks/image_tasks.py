@@ -93,16 +93,51 @@ ASPECT_RATIO_MAP: dict[str, tuple[float, float]] = {
     "2:3":  (2.0, 3.0),
 }
 
-def _get_pricing(db: Session) -> tuple[Decimal, Decimal]:
-    """Fetch (usd_cny_rate, image_price_cny) from system_settings with defaults."""
+def _resolve_image_price_for_resolution(
+    resolution: str,
+    price_1k: Decimal,
+    price_2k: Decimal,
+    price_4k: Decimal,
+    fallback: Decimal,
+) -> Decimal:
+    r = (resolution or "").strip()
+    if r in ("1k", "1K"):
+        return price_1k
+    if r in ("4k", "4K"):
+        return price_4k
+    if r in ("2k", "2K"):
+        return price_2k
+    return fallback
+
+
+def _get_pricing(db: Session, resolution: str) -> tuple[Decimal, Decimal]:
+    """Fetch (usd_cny_rate, image_price_cny_for_resolution) from system_settings with defaults."""
     row = db.execute(
         text("SELECT usd_cny_rate, image_price_cny FROM system_settings WHERE id = 1")
     ).fetchone()
     if not row:
         return Decimal("7.2"), Decimal("1.5")
     usd_cny_rate = Decimal(str(row[0] if row[0] is not None else "7.2"))
-    image_price_cny = Decimal(str(row[1] if row[1] is not None else "1.5"))
-    return usd_cny_rate, image_price_cny
+    fallback = Decimal(str(row[1] if row[1] is not None else "1.5"))
+
+    # Try per-resolution columns if present (older DBs may not have them yet)
+    try:
+        row2 = db.execute(
+            text(
+                "SELECT image_price_cny_1k, image_price_cny_2k, image_price_cny_4k "
+                "FROM system_settings WHERE id = 1"
+            )
+        ).fetchone()
+        if row2:
+            p1 = Decimal(str(row2[0] if row2[0] is not None else fallback))
+            p2 = Decimal(str(row2[1] if row2[1] is not None else fallback))
+            p4 = Decimal(str(row2[2] if row2[2] is not None else fallback))
+            return usd_cny_rate, _resolve_image_price_for_resolution(resolution, p1, p2, p4, fallback)
+    except Exception:
+        # DB schema may not include columns yet; fallback to single price.
+        pass
+
+    return usd_cny_rate, fallback
 
 
 def _compute_dimensions(resolution: str, aspect_ratio: str) -> tuple[int, int]:
@@ -517,7 +552,7 @@ def generate_image_task(
         # ------------------------------------------------------------------
         # 9. Log API usage in usage_logs table
         # ------------------------------------------------------------------
-        usd_cny_rate, image_price_cny = _get_pricing(db)
+        usd_cny_rate, image_price_cny = _get_pricing(db, resolution)
         estimated_cost_cny = image_price_cny
         estimated_cost_usd = cny_to_usd(estimated_cost_cny, usd_cny_rate)
 
