@@ -113,6 +113,7 @@ def _build_user_prompt(
         f"{count_hint}"
         f"Generate figure prompts that best match the user's request and the paper. "
         f"If no explicit user request is provided, generate one figure prompt per major section above. "
+        f"Never include rulers, margin guides, or any visible measurement text like '16px', '0.5pt', or '75%'. "
         f"Return ONLY valid JSON array as specified in the system prompt. "
         f"Each prompt field must be at least 500 words and extremely precise."
     )

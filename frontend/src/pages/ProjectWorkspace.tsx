@@ -11,7 +11,6 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 
@@ -26,6 +25,12 @@ type DocumentItem = {
     created_at?: string;
 };
 
+type PromptSettings = {
+    resolution: string;
+    aspectRatio: string;
+    colorScheme: string;
+};
+
 export function ProjectWorkspace() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
@@ -36,15 +41,14 @@ export function ProjectWorkspace() {
     const [documents, setDocuments] = useState<DocumentItem[]>([]);
     const [prompts, setPrompts] = useState<any[]>([]);
     const [images, setImages] = useState<any[]>([]);
-    const [activeTab, setActiveTab] = useState('prompts');
 
     // Upload state
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
 
-    // Prompt Generation state
-    const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
+    // Generation state
+    const [isAutoGenerating, setIsAutoGenerating] = useState(false);
     const [isDownloading, setIsDownloading] = useState<string | null>(null);
     const [isPreviewing, setIsPreviewing] = useState<Record<string, boolean>>({});
     const [imagePreviews, setImagePreviews] = useState<Record<string, string>>({});
@@ -52,6 +56,32 @@ export function ProjectWorkspace() {
     const [promptMode, setPromptMode] = useState<'overall' | 'sections'>('overall');
     const [promptRequest, setPromptRequest] = useState('');
     const [selectedSectionIndices, setSelectedSectionIndices] = useState<number[]>([]);
+
+    // Per-image features
+    const [colorSchemes, setColorSchemes] = useState<any[]>([]);
+    const [editInstructions, setEditInstructions] = useState<Record<string, string>>({});
+    const [isEditing, setIsEditing] = useState<Record<string, boolean>>({});
+    const [promptSettings, setPromptSettings] = useState<Record<string, PromptSettings>>({});
+
+    const getSettings = (promptId: string): PromptSettings => {
+        if (promptSettings[promptId]) return promptSettings[promptId];
+        const prompt = prompts.find(p => p.id === promptId);
+        return {
+            resolution: '2K',
+            aspectRatio: prompt?.suggested_aspect_ratio || '16:9',
+            colorScheme: currentProject?.color_scheme || 'okabe-ito',
+        };
+    };
+
+    const updateSetting = (promptId: string, field: keyof PromptSettings, value: string) => {
+        setPromptSettings(prev => ({
+            ...prev,
+            [promptId]: {
+                ...(prev[promptId] || getSettings(promptId)),
+                [field]: value,
+            },
+        }));
+    };
 
     useEffect(() => {
         if (id && token) {
@@ -62,17 +92,20 @@ export function ProjectWorkspace() {
 
     useEffect(() => {
         return () => {
-            // Revoke any blob: URLs we created to avoid memory leaks.
             for (const url of Object.values(previewUrlsRef.current)) {
-                try {
-                    URL.revokeObjectURL(url);
-                } catch {
-                    // ignore
-                }
+                try { URL.revokeObjectURL(url); } catch { /* ignore */ }
             }
             previewUrlsRef.current = {};
         };
     }, []);
+
+    // Poll while any image is still processing
+    useEffect(() => {
+        const hasProcessing = images.some(img => img.generation_status === 'processing');
+        if (!hasProcessing || !id) return;
+        const interval = setInterval(() => { fetchProjectData(id); }, 5000);
+        return () => clearInterval(interval);
+    }, [images, id]);
 
     const fetchProjectData = async (projectId: string) => {
         setIsLoading(true);
@@ -109,6 +142,13 @@ export function ProjectWorkspace() {
                 console.debug('Failed to fetch images', e);
             }
 
+            try {
+                const schemesRes = await api.get('/color-schemes/');
+                setColorSchemes(schemesRes.data || []);
+            } catch (e) {
+                console.debug('Failed to fetch color schemes', e);
+            }
+
         } catch (err) {
             console.error(err);
             navigate('/projects');
@@ -126,15 +166,8 @@ export function ProjectWorkspace() {
             const { blob } = await fetchAuthedBlob(`/images/${imageId}/download`);
             const url = URL.createObjectURL(blob);
 
-            // Revoke old one if exists
             const old = previewUrlsRef.current[imageId];
-            if (old) {
-                try {
-                    URL.revokeObjectURL(old);
-                } catch {
-                    // ignore
-                }
-            }
+            if (old) { try { URL.revokeObjectURL(old); } catch { /* ignore */ } }
             previewUrlsRef.current[imageId] = url;
             setImagePreviews(prev => ({ ...prev, [imageId]: url }));
         } catch (err) {
@@ -162,7 +195,6 @@ export function ProjectWorkspace() {
                     setUploadProgress(Math.min(100, Math.round((evt.loaded / total) * 100)));
                 },
             });
-            // Refresh docs
             await fetchProjectData(id);
             alert('文件上传成功，已加入解析队列。');
         } catch (err: any) {
@@ -190,41 +222,13 @@ export function ProjectWorkspace() {
         }
     };
 
-    /*
-    const handleGeneratePrompts = async () => {
-        if (!id) return;
-        setIsGeneratingPrompt(true);
-        try {
-            await api.post(`/projects/${id}/prompts/generate`, {
-                section_indices: selectedDocIds,
-                form_data: {} // custom params based on spec
-            });
-            fetchProjectData(id);
-        } catch (err) {
-            console.error('Failed to generate prompts', err);
-        } finally {
-            setTimeout(() => {
-                setIsGeneratingPrompt(false);
-                // 提示此为演示由于需要SSE
-                setPrompts((prev: any[]) => [...prev, {
-                    id: 'demo-p-1',
-                    content: '一个关于 Transformer 架构的高质量 3D 架构图，展示自注意力机制，采用 Okabe-Ito 配色，纯白背景，矢量风格。',
-                    status: 'completed',
-                    image_count: 0,
-                    title: 'Transformer 架构图',
-                    suggested_type: '架构图'
-                }]);
-            }, 2000);
-        }
-    };
-    */
-
-    const handleGeneratePrompt = async () => {
+    /** Generate prompts then auto-trigger image generation for each new prompt */
+    const handleAutoGenerate = async () => {
         if (!id) return;
 
         const parsedDoc = documents.find((d) => d.parse_status === 'completed' && Array.isArray(d.sections) && d.sections.length > 0);
         if (!parsedDoc) {
-            alert('请先上传文档并等待解析完成，再生成提示词。');
+            alert('请先上传文档并等待解析完成，再生成配图。');
             return;
         }
 
@@ -233,7 +237,7 @@ export function ProjectWorkspace() {
             return;
         }
 
-        setIsGeneratingPrompt(true);
+        setIsAutoGenerating(true);
         try {
             const beforeCount = prompts.length;
             const payload: any = {
@@ -245,38 +249,87 @@ export function ProjectWorkspace() {
             };
 
             await api.post(`/projects/${id}/prompts/generate`, payload);
-            setActiveTab('prompts');
 
-            // Poll prompt list until new prompts appear (simple UX)
-            const deadline = Date.now() + 90_000; // 90s
+            // Poll until new prompts appear
+            let newPrompts: any[] = [];
+            const deadline = Date.now() + 90_000;
             while (Date.now() < deadline) {
                 await new Promise((r) => setTimeout(r, 2000));
                 const promptsRes = await api.get(`/projects/${id}/prompts`);
                 const next = promptsRes.data || [];
                 setPrompts(next);
-                if (next.length > beforeCount) break;
+                if (next.length > beforeCount) {
+                    newPrompts = next.slice(beforeCount);
+                    break;
+                }
             }
+
+            // Auto-trigger image generation for each new prompt
+            for (const prompt of newPrompts) {
+                const aspectRatio = prompt.suggested_aspect_ratio || '16:9';
+                const cs = currentProject?.color_scheme || 'okabe-ito';
+                // Initialize per-prompt settings
+                setPromptSettings(prev => ({
+                    ...prev,
+                    [prompt.id]: { resolution: '2K', aspectRatio, colorScheme: cs },
+                }));
+                try {
+                    await api.post(`/prompts/${prompt.id}/images/generate`, {
+                        resolution: '2K',
+                        aspect_ratio: aspectRatio,
+                        color_scheme: cs,
+                    });
+                } catch (err) {
+                    console.error('Auto image generation failed for prompt', prompt.id, err);
+                }
+            }
+
+            // Refresh to pick up image records
+            await fetchProjectData(id);
         } catch (err: any) {
-            console.error('Failed to generate prompt', err);
+            console.error('Failed to auto-generate', err);
             const detail = err?.response?.data?.detail;
-            alert(detail ? `生成提示词失败：${detail}` : '生成提示词失败，请稍后重试。');
+            alert(detail ? `生成配图失败：${detail}` : '生成配图失败，请稍后重试。');
         } finally {
-            setIsGeneratingPrompt(false);
+            setIsAutoGenerating(false);
         }
     };
 
+    /** Generate (or re-generate) an image for a single prompt using its current settings */
     const handleGenerateImage = async (promptId: string) => {
         if (!id) return;
+        const settings = getSettings(promptId);
         try {
             await api.post(`/prompts/${promptId}/images/generate`, {
-                resolution: "2K",
-                aspect_ratio: "16:9",
+                resolution: settings.resolution,
+                aspect_ratio: settings.aspectRatio,
+                color_scheme: settings.colorScheme,
             });
             await fetchProjectData(id);
-            setActiveTab('images');
         } catch (err) {
             console.error('Failed to generate image', err);
             alert('生成图像失败，请稍后重试。');
+        }
+    };
+
+    /** Edit an existing image with a text instruction (image-to-image) */
+    const handleEditImage = async (imageId: string) => {
+        const instruction = editInstructions[imageId]?.trim();
+        if (!instruction || !id) return;
+
+        setIsEditing(prev => ({ ...prev, [imageId]: true }));
+        try {
+            const formData = new FormData();
+            formData.append('edit_instruction', instruction);
+            await api.post(`/images/${imageId}/edit`, formData);
+            setEditInstructions(prev => ({ ...prev, [imageId]: '' }));
+            await fetchProjectData(id);
+        } catch (err: any) {
+            console.error('Edit image failed', err);
+            const detail = err?.response?.data?.detail;
+            alert(detail ? `改图失败：${detail}` : '改图失败，请稍后重试。');
+        } finally {
+            setIsEditing(prev => ({ ...prev, [imageId]: false }));
         }
     };
 
@@ -318,7 +371,7 @@ export function ProjectWorkspace() {
                             </Select>
                         </div>
                             <p className="text-xs text-muted-foreground mt-2">
-                                “整体架构图”只生成 1 条提示词；“按章节生成”会基于所选章节生成多条提示词。章节勾选对两种方式都生效（用于限定参考范围）。
+                                "整体架构图"只生成 1 条提示词；"按章节生成"会基于所选章节生成多条提示词。章节勾选对两种方式都生效（用于限定参考范围）。
                             </p>
                         </div>
 
@@ -408,125 +461,235 @@ export function ProjectWorkspace() {
                     </ScrollArea>
                 </CardContent>
                 <CardFooter className="p-4 border-t bg-muted/10">
-                    <Button className="w-full font-semibold" onClick={handleGeneratePrompt} disabled={isGeneratingPrompt}>
-                        {isGeneratingPrompt ? (
-                            <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> 生成提示词中...</>
+                    <Button className="w-full font-semibold" onClick={handleAutoGenerate} disabled={isAutoGenerating}>
+                        {isAutoGenerating ? (
+                            <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> 生成配图中...</>
                         ) : (
-                            <><Send className="w-4 h-4 mr-2" /> 生成提示词</>
+                            <><Send className="w-4 h-4 mr-2" /> 生成配图</>
                         )}
                     </Button>
                 </CardFooter>
             </Card>
 
-            {/* Right Column: Prompts & Images Tabs */}
-            <Card className="flex-1 flex flex-col h-full shadow-none border-0 bg-transparent">
-                <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-                    <TabsList className="w-full justify-start rounded-none border-b bg-transparent h-14 p-0 px-4">
-                        <TabsTrigger value="prompts" className="data-[state=active]:bg-background data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full px-6">
-                            提示词 ({prompts.length})
-                        </TabsTrigger>
-                        <TabsTrigger value="images" className="data-[state=active]:bg-background data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-full px-6">
-                            生成的配图
-                        </TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="prompts" className="flex-1 overflow-hidden m-0 p-4">
-                        <div className="h-full flex flex-col gap-4">
-                            {prompts.length === 0 ? (
-                                <div className="text-center text-muted-foreground mt-20">暂无提示词生成。</div>
-                            ) : (
-                                <ScrollArea className="flex-1">
-                                    <div className="grid gap-4">
-                                        {prompts.map(prompt => (
-                                            <Card key={prompt.id}>
-                                                <CardHeader className="pb-2">
-                                                    <div className="flex justify-between">
-                                                        <CardTitle className="text-lg">
-                                                            图表: {prompt.title || `Figure ${prompt.figure_number ?? ''}`}
-                                                        </CardTitle>
-                                                        <Badge>{prompt.suggested_figure_type || '未分类'}</Badge>
-                                                    </div>
-                                                </CardHeader>
-                                                <CardContent>
-                                                    <p className="text-sm text-muted-foreground font-mono bg-muted p-3 rounded-md max-h-32 overflow-y-auto">
-                                                        {prompt.active_prompt || prompt.original_prompt || ''}
-                                                    </p>
-                                                </CardContent>
-                                                <CardFooter className="justify-end pt-0 mt-4 border-t pt-4">
-                                                    <Button size="sm" onClick={() => handleGenerateImage(prompt.id)}>
-                                                        <ImageIcon className="mr-2 h-4 w-4" />
-                                                        生成图像
-                                                    </Button>
-                                                </CardFooter>
-                                            </Card>
-                                        ))}
+            {/* Right Column: Image Cards (no tabs) */}
+            <div className="flex-1 flex flex-col h-full">
+                <div className="bg-muted/30 border-b py-4 px-6 flex items-center">
+                    <ImageIcon className="w-5 h-5 mr-2 text-primary" />
+                    <h3 className="text-lg font-semibold">配图生成</h3>
+                </div>
+                <ScrollArea className="flex-1">
+                    <div className="p-4">
+                        {prompts.length === 0 ? (
+                            <div className="text-center text-muted-foreground mt-20">
+                                {isAutoGenerating ? (
+                                    <div className="flex flex-col items-center gap-2">
+                                        <RefreshCw className="h-8 w-8 animate-spin text-primary" />
+                                        <span>正在生成配图...</span>
                                     </div>
-                                </ScrollArea>
-                            )}
-                        </div>
-                    </TabsContent>
+                                ) : (
+                                    '上传文档后点击"生成配图"开始。'
+                                )}
+                            </div>
+                        ) : (
+                            <div className="space-y-6">
+                                {prompts.map(prompt => {
+                                    const promptImgs = images.filter(img => img.prompt_id === prompt.id);
+                                    const latestImg = promptImgs.length > 0
+                                        ? promptImgs.reduce((a: any, b: any) =>
+                                            new Date(b.created_at || 0).getTime() > new Date(a.created_at || 0).getTime() ? b : a
+                                        )
+                                        : null;
+                                    const settings = getSettings(prompt.id);
+                                    const isCompleted = latestImg?.generation_status === 'completed';
+                                    const isProcessing = latestImg?.generation_status === 'processing';
 
-                    <TabsContent value="images" className="flex-1 overflow-hidden m-0 p-4">
-                        <ScrollArea className="h-full">
-                            {images.length === 0 ? (
-                                <div className="text-center text-muted-foreground mt-20">暂无图表生成。</div>
-                            ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {images.map(img => (
-                                        <Card key={img.id} className="overflow-hidden">
+                                    return (
+                                        <Card key={prompt.id} className="overflow-hidden">
+                                            {/* Image Preview */}
                                             <div className="aspect-video bg-muted relative">
-                                                {img.generation_status === 'completed' && imagePreviews[img.id] ? (
+                                                {isCompleted && latestImg && imagePreviews[latestImg.id] ? (
                                                     <img
-                                                        src={imagePreviews[img.id]}
-                                                        alt="Generated Figure"
+                                                        src={imagePreviews[latestImg.id]}
+                                                        alt={prompt.title || 'Generated Figure'}
                                                         className="w-full h-full object-cover"
                                                         onError={() => {
-                                                            // If blob URL is revoked/invalid, allow re-fetch.
                                                             setImagePreviews(prev => {
                                                                 const next = { ...prev };
-                                                                delete next[img.id];
+                                                                delete next[latestImg.id];
                                                                 return next;
                                                             });
                                                         }}
                                                     />
-                                                ) : img.generation_status === 'completed' ? (
+                                                ) : isCompleted && latestImg ? (
                                                     <div className="absolute inset-0 flex items-center justify-center flex-col gap-2">
                                                         <ImageIcon className="h-8 w-8 text-muted-foreground" />
                                                         <Button
                                                             size="sm"
                                                             variant="secondary"
-                                                            disabled={!!isPreviewing[img.id]}
-                                                            onClick={() => ensureImagePreview(img.id)}
+                                                            disabled={!!isPreviewing[latestImg.id]}
+                                                            onClick={() => ensureImagePreview(latestImg.id)}
                                                         >
-                                                            {isPreviewing[img.id] ? '加载中...' : '预览'}
+                                                            {isPreviewing[latestImg.id] ? '加载中...' : '预览'}
                                                         </Button>
+                                                    </div>
+                                                ) : isProcessing ? (
+                                                    <div className="absolute inset-0 flex items-center justify-center flex-col">
+                                                        <RefreshCw className="h-8 w-8 animate-spin text-primary" />
+                                                        <span className="mt-2 text-sm font-medium">生成中...</span>
                                                     </div>
                                                 ) : (
                                                     <div className="absolute inset-0 flex items-center justify-center flex-col">
-                                                        {img.generation_status === 'processing' ? <RefreshCw className="h-8 w-8 animate-spin text-primary" /> : <ImageIcon className="h-8 w-8 text-muted-foreground" />}
-                                                        <span className="mt-2 text-sm font-medium">{img.generation_status}</span>
+                                                        <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                                                        <span className="mt-2 text-sm text-muted-foreground">
+                                                            {latestImg ? latestImg.generation_status : '待生成'}
+                                                        </span>
                                                     </div>
                                                 )}
                                             </div>
-                                            <CardFooter className="p-3 bg-muted/20 flex justify-between">
-                                                <span className="text-xs text-muted-foreground">{img.resolution}</span>
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    disabled={img.generation_status !== 'completed' || isDownloading === img.id}
-                                                    onClick={() => handleDownloadImage(img.id)}
-                                                >
-                                                    <Download className="h-4 w-4" />
-                                                </Button>
+
+                                            {/* Title + Type Badge */}
+                                            <CardHeader className="pb-2">
+                                                <div className="flex justify-between items-center">
+                                                    <CardTitle className="text-base">
+                                                        {prompt.title || `Figure ${prompt.figure_number ?? ''}`}
+                                                    </CardTitle>
+                                                    <Badge>{prompt.suggested_figure_type || '未分类'}</Badge>
+                                                </div>
+                                            </CardHeader>
+
+                                            {/* Per-card Settings */}
+                                            <CardContent className="pb-3">
+                                                <div className="grid grid-cols-3 gap-2">
+                                                    <div>
+                                                        <label className="text-xs text-muted-foreground mb-1 block">配色</label>
+                                                        <Select
+                                                            disabled={isCompleted}
+                                                            value={settings.colorScheme}
+                                                            onValueChange={(v) => updateSetting(prompt.id, 'colorScheme', v)}
+                                                        >
+                                                            <SelectTrigger className="h-8 text-xs">
+                                                                <SelectValue />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                {colorSchemes.length > 0 ? (
+                                                                    colorSchemes.map(scheme => {
+                                                                        const val = typeof scheme === 'string' ? scheme : (scheme.name || scheme.id);
+                                                                        const label = typeof scheme === 'string' ? scheme : (scheme.display_name || scheme.name || scheme.id);
+                                                                        return <SelectItem key={val} value={val}>{label}</SelectItem>;
+                                                                    })
+                                                                ) : (
+                                                                    <SelectItem value="okabe-ito">Okabe-Ito</SelectItem>
+                                                                )}
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs text-muted-foreground mb-1 block">比例</label>
+                                                        <Select
+                                                            disabled={isCompleted}
+                                                            value={settings.aspectRatio}
+                                                            onValueChange={(v) => updateSetting(prompt.id, 'aspectRatio', v)}
+                                                        >
+                                                            <SelectTrigger className="h-8 text-xs">
+                                                                <SelectValue />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                {['1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3'].map(r => (
+                                                                    <SelectItem key={r} value={r}>{r}</SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs text-muted-foreground mb-1 block">分辨率</label>
+                                                        <Select
+                                                            disabled={isCompleted}
+                                                            value={settings.resolution}
+                                                            onValueChange={(v) => updateSetting(prompt.id, 'resolution', v)}
+                                                        >
+                                                            <SelectTrigger className="h-8 text-xs">
+                                                                <SelectValue />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                {['1K', '2K', '4K'].map(r => (
+                                                                    <SelectItem key={r} value={r}>{r}</SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                </div>
+                                            </CardContent>
+
+                                            {/* Action Buttons */}
+                                            <CardFooter className="flex gap-2 border-t pt-3">
+                                                {!latestImg ? (
+                                                    <Button size="sm" onClick={() => handleGenerateImage(prompt.id)}>
+                                                        <ImageIcon className="mr-2 h-4 w-4" />
+                                                        生成图片
+                                                    </Button>
+                                                ) : (
+                                                    <>
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            onClick={() => handleGenerateImage(prompt.id)}
+                                                            disabled={isProcessing}
+                                                        >
+                                                            <RefreshCw className="mr-1 h-3 w-3" />
+                                                            重新生成
+                                                        </Button>
+                                                        <Button
+                                                            size="sm"
+                                                            variant="ghost"
+                                                            disabled={!isCompleted || isDownloading === latestImg.id}
+                                                            onClick={() => handleDownloadImage(latestImg.id)}
+                                                        >
+                                                            <Download className="mr-1 h-3 w-3" />
+                                                            下载
+                                                        </Button>
+                                                    </>
+                                                )}
                                             </CardFooter>
+
+                                            {/* Edit (image-to-image) section */}
+                                            {isCompleted && latestImg && (
+                                                <div className="border-t px-4 py-3">
+                                                    <div className="flex gap-2">
+                                                        <input
+                                                            type="text"
+                                                            className="flex-1 h-8 rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                            placeholder="输入改图需求..."
+                                                            value={editInstructions[latestImg.id] || ''}
+                                                            onChange={(e) => setEditInstructions(prev => ({ ...prev, [latestImg.id]: e.target.value }))}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Enter' && !e.shiftKey) {
+                                                                    e.preventDefault();
+                                                                    handleEditImage(latestImg.id);
+                                                                }
+                                                            }}
+                                                        />
+                                                        <Button
+                                                            size="sm"
+                                                            disabled={!editInstructions[latestImg.id]?.trim() || !!isEditing[latestImg.id]}
+                                                            onClick={() => handleEditImage(latestImg.id)}
+                                                        >
+                                                            {isEditing[latestImg.id] ? (
+                                                                <RefreshCw className="h-4 w-4 animate-spin" />
+                                                            ) : (
+                                                                <Send className="h-4 w-4" />
+                                                            )}
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </Card>
-                                    ))}
-                                </div>
-                            )}
-                        </ScrollArea>
-                    </TabsContent>
-                </Tabs>
-            </Card>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                </ScrollArea>
+            </div>
         </div>
     );
 }
