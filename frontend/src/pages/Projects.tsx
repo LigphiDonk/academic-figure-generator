@@ -13,7 +13,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
 import { Alert, AlertDescription } from '../components/ui/alert';
 
@@ -21,7 +20,6 @@ const createProjectSchema = z.object({
     name: z.string().trim().min(1, '请输入项目名称'),
     description: z.string().trim().optional(),
     paper_field: z.string().trim().optional(),
-    color_scheme: z.string().min(1, '请选择配色方案'),
 });
 
 type CreateProjectValues = z.infer<typeof createProjectSchema>;
@@ -33,14 +31,12 @@ export function Projects() {
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false); // Renamed from isDialogOpen
     const [error, setError] = useState('');
     const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof CreateProjectValues, string>>>({});
-    const [colorSchemes, setColorSchemes] = useState<Array<{ id: string; name: string }>>([]);
     const navigate = useNavigate();
 
     // New state variables for manual form handling
     const [newProjectName, setNewProjectName] = useState('');
     const [newProjectDesc, setNewProjectDesc] = useState('');
     const [newProjectField, setNewProjectField] = useState('计算机科学'); // Default value
-    const [selectedColorSchemeId, setSelectedColorSchemeId] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const fetchProjects = async () => {
@@ -54,29 +50,6 @@ export function Projects() {
         }
     };
 
-    const fetchColorSchemes = async () => {
-        try {
-            const response = await api.get('/color-schemes/');
-            const schemes = response.data || [];
-            setColorSchemes(schemes);
-            if (schemes.length > 0) {
-                const defaultSchemeId = schemes[0].id.toString();
-                // Set default for manual state
-                setSelectedColorSchemeId(defaultSchemeId);
-            }
-        } catch (err) {
-            console.error('Failed to fetch color schemes', err);
-            const fallbackSchemes = [
-                { id: 'preset-okabe-ito', name: 'Okabe-Ito (Colorblind Safe, Recommended)' },
-                { id: 'preset-ml-topconf-tab10', name: 'ML TopConf (Matplotlib Tab10)' },
-                { id: 'preset-ml-topconf-colorblind', name: 'ML TopConf (Seaborn Colorblind)' },
-                { id: 'preset-ml-topconf-deep', name: 'ML TopConf (Seaborn Deep)' },
-            ];
-            setColorSchemes(fallbackSchemes);
-            setSelectedColorSchemeId(fallbackSchemes[0].id);
-        }
-    };
-
     useEffect(() => {
         // Wait until token is available (zustand persist may hydrate after first render).
         if (!token) {
@@ -86,7 +59,6 @@ export function Projects() {
         }
         setIsLoading(true);
         fetchProjects();
-        fetchColorSchemes();
     }, [token, setProjects]);
 
     const handleCreateProject = async () => {
@@ -97,7 +69,6 @@ export function Projects() {
             name: newProjectName,
             description: newProjectDesc || undefined,
             paper_field: newProjectField || undefined,
-            color_scheme: selectedColorSchemeId,
         });
 
         if (!parsed.success) {
@@ -116,7 +87,7 @@ export function Projects() {
                 name: parsed.data.name,
                 description: parsed.data.description || null,
                 paper_field: parsed.data.paper_field || null,
-                color_scheme: parsed.data.color_scheme,
+                color_scheme: 'preset-okabe-ito',
             };
             await api.post('/projects/', payload);
             await fetchProjects();
@@ -126,8 +97,6 @@ export function Projects() {
             setNewProjectName('');
             setNewProjectDesc('');
             setNewProjectField('计算机科学'); // Reset to default
-            const defaultSchemeId = colorSchemes[0]?.id?.toString() || '';
-            setSelectedColorSchemeId(defaultSchemeId);
         } catch (e: any) {
             console.error(e);
             setError(e.response?.data?.detail || '项目创建失败，请重试');
@@ -223,28 +192,6 @@ export function Projects() {
                                         }}
                                     />
                                     {fieldErrors.paper_field && <p className="text-sm font-medium text-destructive">{fieldErrors.paper_field}</p>}
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="colorscheme">默认配色方案</Label>
-                                    <Select
-                                        value={selectedColorSchemeId}
-                                        onValueChange={(v) => {
-                                            setSelectedColorSchemeId(v);
-                                            if (fieldErrors.color_scheme) setFieldErrors((prev) => ({ ...prev, color_scheme: undefined }));
-                                        }}
-                                    >
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="选择配色方案" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {colorSchemes.map(scheme => (
-                                                <SelectItem key={scheme.id} value={scheme.id}>
-                                                    {scheme.name}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    {fieldErrors.color_scheme && <p className="text-sm font-medium text-destructive">{fieldErrors.color_scheme}</p>}
                                 </div>
                             </div>
                             <DialogFooter>

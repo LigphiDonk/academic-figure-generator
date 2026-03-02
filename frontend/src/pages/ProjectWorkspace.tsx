@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { FileUp, FileText, Image as ImageIcon, Send, RefreshCw, Download } from 'lucide-react';
+import { FileUp, FileText, Image as ImageIcon, Send, RefreshCw, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 
 import { api } from '../lib/api';
 import { useProjectStore } from '../store/projectStore';
@@ -57,6 +57,8 @@ export function ProjectWorkspace() {
     const [promptRequest, setPromptRequest] = useState('');
     const [selectedSectionIndices, setSelectedSectionIndices] = useState<number[]>([]);
     const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+    const [showStructure, setShowStructure] = useState(true);
+    const [showDocs, setShowDocs] = useState(true);
 
     // Per-image features
     const [colorSchemes, setColorSchemes] = useState<any[]>([]);
@@ -337,224 +339,264 @@ export function ProjectWorkspace() {
     if (isLoading) return <div className="p-8">加载中...</div>;
     if (!currentProject) return <div className="p-8">找不到该项目...</div>;
 
-    return (
-        <div className="h-[calc(100vh-6rem)] flex gap-6 overflow-hidden">
+    const renderParsedStructure = () => {
+        const parsedDoc = documents.find((d) => d.parse_status === 'completed' && Array.isArray(d.sections) && d.sections.length > 0);
+        if (!parsedDoc) return <div className="text-sm text-muted-foreground">上传文档并等待解析完成后，这里会显示章节结构。</div>;
 
-            {/* Left Column: Documents */}
-            <Card className="w-[420px] md:w-[480px] lg:w-[520px] flex flex-col h-full border-r shadow-none shrink-0">
-                <CardHeader className="bg-muted/30 border-b py-4">
-                    <CardTitle className="text-lg flex items-center">
-                        <FileText className="w-5 h-5 mr-2 text-primary" />
-                        参考文档
-                    </CardTitle>
-                </CardHeader>
-                <CardContent className="flex-1 overflow-hidden p-0 flex flex-col">
+        const sections = parsedDoc.sections || [];
 
-                    {/* Parsed structure (primary) */}
-                    <div className="px-4 py-3 border-b bg-background">
-                        <div className="flex items-center justify-between gap-2">
-                            <div>
-                                <div className="text-sm font-semibold">论文结构（用于限定生成范围）</div>
-                                <div className="text-xs text-muted-foreground mt-0.5">按章节折叠选择，你选中的内容会作为提示词生成依据。</div>
-                            </div>
-                        </div>
+        const getGroupKeyAndTitle = (rawTitle: string | undefined | null) => {
+            const title = (rawTitle || '').trim();
+            if (!title) return null;
+
+            const cn = title.match(/^第\s*([0-9一二三四五六七八九十百千]+)\s*章\s*[:：]?\s*(.*)$/);
+            if (cn) {
+                const idx = cn[1];
+                const rest = (cn[2] || '').trim();
+                return { key: `chapter-${idx}`, title: rest ? `第${idx}章：${rest}` : `第${idx}章` };
+            }
+
+            const en = title.match(/^chapter\s+(\d+)\b\s*[:：-]?\s*(.*)$/i);
+            if (en) {
+                const idx = en[1];
+                const rest = (en[2] || '').trim();
+                return { key: `chapter-${idx}`, title: rest ? `Chapter ${idx}: ${rest}` : `Chapter ${idx}` };
+            }
+
+            if (/^(摘要|abstract|引言|introduction|结论|conclusion|参考文献|references)\b/i.test(title)) {
+                return { key: `section-${title.toLowerCase()}`, title };
+            }
+
+            return null;
+        };
+
+        type Group = {
+            key: string;
+            title: string;
+            items: Array<{ idx: number; title: string; preview: string }>;
+        };
+
+        const groups: Group[] = [];
+        let current: Group | null = null;
+
+        sections.forEach((sec: any, idx: number) => {
+            const groupInfo = getGroupKeyAndTitle(sec?.title);
+            if (groupInfo) {
+                current = groups.find((g) => g.key === groupInfo.key) || null;
+                if (!current) {
+                    current = { key: groupInfo.key, title: groupInfo.title, items: [] };
+                    groups.push(current);
+                }
+            }
+            if (!current) {
+                current = groups.find((g) => g.key === 'misc') || null;
+                if (!current) {
+                    current = { key: 'misc', title: '其他', items: [] };
+                    groups.push(current);
+                }
+            }
+
+            const previewText = (sec?.content || sec?.text || '').toString().trim();
+            current.items.push({
+                idx,
+                title: (sec?.title || `Section ${idx + 1}`).toString(),
+                preview: previewText,
+            });
+        });
+
+        const allIndices = sections.map((_, idx) => idx);
+        const selectedSet = new Set(selectedSectionIndices);
+
+        const selectMany = (indices: number[], checked: boolean) => {
+            setSelectedSectionIndices((prev) => {
+                const set = new Set(prev);
+                for (const i of indices) {
+                    if (checked) set.add(i);
+                    else set.delete(i);
+                }
+                return Array.from(set).sort((a, b) => a - b);
+            });
+        };
+
+        return (
+            <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="text-xs text-muted-foreground">
+                        已选择 {selectedSectionIndices.length}/{sections.length} 段
                     </div>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => selectMany(allIndices, true)}
+                        >
+                            全选
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => selectMany(allIndices, false)}
+                        >
+                            全不选
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                                const next: Record<string, boolean> = {};
+                                for (const g of groups) next[g.key] = false;
+                                setCollapsedGroups(next);
+                            }}
+                        >
+                            展开
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                                const next: Record<string, boolean> = {};
+                                for (const g of groups) next[g.key] = true;
+                                setCollapsedGroups(next);
+                            }}
+                        >
+                            折叠
+                        </Button>
+                    </div>
+                </div>
 
-                    <ScrollArea className="flex-1 p-4">
-                        {(() => {
-                            const parsedDoc = documents.find((d) => d.parse_status === 'completed' && Array.isArray(d.sections) && d.sections.length > 0);
-                            if (!parsedDoc) return <div className="text-sm text-muted-foreground">上传文档并等待解析完成后，这里会显示章节结构。</div>;
+                <div className="space-y-2">
+                    {groups.map((g) => {
+                        const indices = g.items.map((it) => it.idx);
+                        const selectedCount = indices.reduce((acc, i) => acc + (selectedSet.has(i) ? 1 : 0), 0);
+                        const allChecked = selectedCount === indices.length && indices.length > 0;
+                        const partiallyChecked = selectedCount > 0 && selectedCount < indices.length;
+                        const isCollapsed = collapsedGroups[g.key] ?? false;
 
-                            const sections = parsedDoc.sections || [];
-
-                            const getGroupKeyAndTitle = (rawTitle: string | undefined | null) => {
-                                const title = (rawTitle || '').trim();
-                                if (!title) return null;
-
-                                const cn = title.match(/^第\s*([0-9一二三四五六七八九十百千]+)\s*章\s*[:：]?\s*(.*)$/);
-                                if (cn) {
-                                    const idx = cn[1];
-                                    const rest = (cn[2] || '').trim();
-                                    return { key: `chapter-${idx}`, title: rest ? `第${idx}章：${rest}` : `第${idx}章` };
-                                }
-
-                                const en = title.match(/^chapter\s+(\d+)\b\s*[:：-]?\s*(.*)$/i);
-                                if (en) {
-                                    const idx = en[1];
-                                    const rest = (en[2] || '').trim();
-                                    return { key: `chapter-${idx}`, title: rest ? `Chapter ${idx}: ${rest}` : `Chapter ${idx}` };
-                                }
-
-                                if (/^(摘要|abstract|引言|introduction|结论|conclusion|参考文献|references)\b/i.test(title)) {
-                                    return { key: `section-${title.toLowerCase()}`, title };
-                                }
-
-                                return null;
-                            };
-
-                            type Group = {
-                                key: string;
-                                title: string;
-                                items: Array<{ idx: number; title: string; preview: string }>;
-                            };
-
-                            const groups: Group[] = [];
-                            let current: Group | null = null;
-
-                            sections.forEach((sec: any, idx: number) => {
-                                const groupInfo = getGroupKeyAndTitle(sec?.title);
-                                if (groupInfo) {
-                                    current = groups.find((g) => g.key === groupInfo.key) || null;
-                                    if (!current) {
-                                        current = { key: groupInfo.key, title: groupInfo.title, items: [] };
-                                        groups.push(current);
-                                    }
-                                }
-                                if (!current) {
-                                    current = groups.find((g) => g.key === 'misc') || null;
-                                    if (!current) {
-                                        current = { key: 'misc', title: '其他', items: [] };
-                                        groups.push(current);
-                                    }
-                                }
-
-                                const previewText = (sec?.content || sec?.text || '').toString().trim();
-                                current.items.push({
-                                    idx,
-                                    title: (sec?.title || `Section ${idx + 1}`).toString(),
-                                    preview: previewText,
-                                });
-                            });
-
-                            const allIndices = sections.map((_, idx) => idx);
-                            const selectedSet = new Set(selectedSectionIndices);
-
-                            const selectMany = (indices: number[], checked: boolean) => {
-                                setSelectedSectionIndices((prev) => {
-                                    const set = new Set(prev);
-                                    for (const i of indices) {
-                                        if (checked) set.add(i);
-                                        else set.delete(i);
-                                    }
-                                    return Array.from(set).sort((a, b) => a - b);
-                                });
-                            };
-
-                            return (
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between gap-2 mb-2">
-                                        <div className="text-xs text-muted-foreground">
-                                            已选择 {selectedSectionIndices.length}/{sections.length} 段
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => selectMany(allIndices, true)}
-                                            >
-                                                全选
-                                            </Button>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => selectMany(allIndices, false)}
-                                            >
-                                                全不选
-                                            </Button>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => {
-                                                    const next: Record<string, boolean> = {};
-                                                    for (const g of groups) next[g.key] = false;
-                                                    setCollapsedGroups(next);
-                                                }}
-                                            >
-                                                展开
-                                            </Button>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => {
-                                                    const next: Record<string, boolean> = {};
-                                                    for (const g of groups) next[g.key] = true;
-                                                    setCollapsedGroups(next);
-                                                }}
-                                            >
-                                                折叠
-                                            </Button>
+                        return (
+                            <details
+                                key={g.key}
+                                open={!isCollapsed}
+                                className="rounded border bg-muted/20"
+                                onToggle={(e) => {
+                                    const open = (e.currentTarget as HTMLDetailsElement).open;
+                                    setCollapsedGroups((prev) => ({ ...prev, [g.key]: !open }));
+                                }}
+                            >
+                                <summary className="cursor-pointer select-none list-none px-3 py-2 flex items-center justify-between">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <input
+                                            type="checkbox"
+                                            className="mt-0.5"
+                                            checked={allChecked}
+                                            ref={(el) => {
+                                                if (el) el.indeterminate = partiallyChecked;
+                                            }}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onChange={(e) => selectMany(indices, e.target.checked)}
+                                        />
+                                        <div className="min-w-0">
+                                            <div className="text-sm font-medium truncate">{g.title}</div>
+                                            <div className="text-xs text-muted-foreground">
+                                                {selectedCount}/{indices.length} 已选
+                                            </div>
                                         </div>
                                     </div>
+                                    <Badge variant="secondary">{indices.length}</Badge>
+                                </summary>
 
-                                    <div className="space-y-2">
-                                        {groups.map((g) => {
-                                            const indices = g.items.map((it) => it.idx);
-                                            const selectedCount = indices.reduce((acc, i) => acc + (selectedSet.has(i) ? 1 : 0), 0);
-                                            const allChecked = selectedCount === indices.length && indices.length > 0;
-                                            const partiallyChecked = selectedCount > 0 && selectedCount < indices.length;
-                                            const isCollapsed = collapsedGroups[g.key] ?? false;
-
-                                            return (
-                                                <details
-                                                    key={g.key}
-                                                    open={!isCollapsed}
-                                                    className="rounded border bg-muted/20"
-                                                    onToggle={(e) => {
-                                                        const open = (e.currentTarget as HTMLDetailsElement).open;
-                                                        setCollapsedGroups((prev) => ({ ...prev, [g.key]: !open }));
-                                                    }}
-                                                >
-                                                    <summary className="cursor-pointer select-none list-none px-3 py-2 flex items-center justify-between">
-                                                        <div className="flex items-center gap-2 min-w-0">
-                                                            <input
-                                                                type="checkbox"
-                                                                className="mt-0.5"
-                                                                checked={allChecked}
-                                                                ref={(el) => {
-                                                                    if (el) el.indeterminate = partiallyChecked;
-                                                                }}
-                                                                onClick={(e) => e.stopPropagation()}
-                                                                onChange={(e) => selectMany(indices, e.target.checked)}
-                                                            />
-                                                            <div className="min-w-0">
-                                                                <div className="text-sm font-medium truncate">{g.title}</div>
-                                                                <div className="text-xs text-muted-foreground">
-                                                                    {selectedCount}/{indices.length} 已选
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        <Badge variant="secondary">{indices.length}</Badge>
-                                                    </summary>
-
-                                                    <div className="px-3 pb-3 space-y-2">
-                                                        {g.items.map((it) => (
-                                                            <div key={it.idx} className="flex items-start space-x-2 p-3 bg-background/60 rounded border">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    className="mt-1"
-                                                                    checked={selectedSet.has(it.idx)}
-                                                                    onChange={(e) => selectMany([it.idx], e.target.checked)}
-                                                                />
-                                                                <div className="min-w-0">
-                                                                    <p className="text-sm font-medium leading-none truncate">{it.title}</p>
-                                                                    {it.preview && (
-                                                                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{it.preview}</p>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </details>
-                                            );
-                                        })}
-                                    </div>
+                                <div className="px-3 pb-3 space-y-2">
+                                    {g.items.map((it) => (
+                                        <div key={it.idx} className="flex items-start space-x-2 p-3 bg-background/60 rounded border">
+                                            <input
+                                                type="checkbox"
+                                                className="mt-1"
+                                                checked={selectedSet.has(it.idx)}
+                                                onChange={(e) => selectMany([it.idx], e.target.checked)}
+                                            />
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-medium leading-none truncate">{it.title}</p>
+                                                {it.preview && (
+                                                    <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{it.preview}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
-                            );
-                        })()}
-                    </ScrollArea>
+                            </details>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    };
+
+    return (
+        <div className="h-[calc(100vh-6rem)] flex gap-4 overflow-hidden">
+
+            {/* Column 1: Parsed Structure (primary) */}
+            {showStructure ? (
+                <Card className="w-[420px] xl:w-[480px] 2xl:w-[540px] flex flex-col h-full border-r shadow-none shrink-0">
+                    <CardHeader className="bg-muted/30 border-b py-4">
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-lg flex items-center">
+                                <FileText className="w-5 h-5 mr-2 text-primary" />
+                                论文结构
+                            </CardTitle>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setShowStructure(false)}
+                                title="收起论文结构"
+                            >
+                                <ChevronLeft className="w-4 h-4" />
+                            </Button>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="flex-1 overflow-hidden p-0 flex flex-col">
+                        <div className="px-4 py-3 border-b bg-background">
+                            <div className="text-xs text-muted-foreground">用于限定提示词生成范围（按章节折叠选择）。</div>
+                        </div>
+                        <ScrollArea className="flex-1 p-4">
+                            {renderParsedStructure()}
+                        </ScrollArea>
+                    </CardContent>
+                </Card>
+            ) : (
+                <div className="h-full w-10 shrink-0 flex items-center justify-center border rounded bg-card">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowStructure(true)}
+                        title="展开论文结构"
+                    >
+                        <ChevronRight className="w-4 h-4" />
+                    </Button>
+                </div>
+            )}
+
+            {/* Column 2: Documents + Settings (secondary) */}
+            {showDocs ? (
+                <Card className="w-[360px] xl:w-[400px] flex flex-col h-full border-r shadow-none shrink-0">
+                    <CardHeader className="bg-muted/30 border-b py-4">
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-lg flex items-center">
+                                <FileText className="w-5 h-5 mr-2 text-primary" />
+                                参考文档
+                            </CardTitle>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setShowDocs(false)}
+                                title="收起参考文档"
+                            >
+                                <ChevronLeft className="w-4 h-4" />
+                            </Button>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="flex-1 overflow-hidden p-0 flex flex-col">
 
                     {/* Upload + settings (secondary) */}
-                    <div className="border-t bg-background">
+                    <div className="bg-background">
                         <div className="p-4 border-b">
                             <div className="text-sm font-medium text-muted-foreground mb-2">你想生成什么图？（可选）</div>
                             <Textarea
@@ -604,7 +646,7 @@ export function ProjectWorkspace() {
                             )}
                         </div>
 
-                        <div className="p-4">
+                        <div className="p-4 border-b">
                             <div className="text-sm font-medium text-muted-foreground mb-2">已上传文档</div>
                             {documents.length === 0 ? (
                                 <div className="text-sm text-muted-foreground">暂无文档，请先上传 PDF / DOCX / TXT。</div>
@@ -627,17 +669,29 @@ export function ProjectWorkspace() {
                             )}
                         </div>
                     </div>
-                </CardContent>
-                <CardFooter className="p-4 border-t bg-muted/10">
-                    <Button className="w-full font-semibold" onClick={handleAutoGenerate} disabled={isAutoGenerating}>
-                        {isAutoGenerating ? (
-                            <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> 生成配图中...</>
-                        ) : (
-                            <><Send className="w-4 h-4 mr-2" /> 生成配图</>
-                        )}
+                    </CardContent>
+                    <CardFooter className="p-4 border-t bg-muted/10">
+                        <Button className="w-full font-semibold" onClick={handleAutoGenerate} disabled={isAutoGenerating}>
+                            {isAutoGenerating ? (
+                                <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> 生成配图中...</>
+                            ) : (
+                                <><Send className="w-4 h-4 mr-2" /> 生成配图</>
+                            )}
+                        </Button>
+                    </CardFooter>
+                </Card>
+            ) : (
+                <div className="h-full w-10 shrink-0 flex items-center justify-center border rounded bg-card">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowDocs(true)}
+                        title="展开参考文档"
+                    >
+                        <ChevronRight className="w-4 h-4" />
                     </Button>
-                </CardFooter>
-            </Card>
+                </div>
+            )}
 
             {/* Right Column: Image Cards (no tabs) */}
             <div className="flex-1 flex flex-col h-full">
@@ -731,7 +785,6 @@ export function ProjectWorkspace() {
                                                     <div>
                                                         <label className="text-xs text-muted-foreground mb-1 block">配色</label>
                                                         <Select
-                                                            disabled={isCompleted}
                                                             value={settings.colorScheme}
                                                             onValueChange={(v) => updateSetting(prompt.id, 'colorScheme', v)}
                                                         >
@@ -754,7 +807,6 @@ export function ProjectWorkspace() {
                                                     <div>
                                                         <label className="text-xs text-muted-foreground mb-1 block">比例</label>
                                                         <Select
-                                                            disabled={isCompleted}
                                                             value={settings.aspectRatio}
                                                             onValueChange={(v) => updateSetting(prompt.id, 'aspectRatio', v)}
                                                         >
@@ -771,7 +823,6 @@ export function ProjectWorkspace() {
                                                     <div>
                                                         <label className="text-xs text-muted-foreground mb-1 block">分辨率</label>
                                                         <Select
-                                                            disabled={isCompleted}
                                                             value={settings.resolution}
                                                             onValueChange={(v) => updateSetting(prompt.id, 'resolution', v)}
                                                         >

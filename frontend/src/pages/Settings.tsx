@@ -5,7 +5,6 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { RefreshCw, CheckCircle2 } from 'lucide-react';
 
 export function Settings() {
@@ -15,8 +14,6 @@ export function Settings() {
 
     const [formData, setFormData] = useState({
         display_name: user?.display_name || '',
-        default_resolution: user?.default_resolution || '4K',
-        default_aspect_ratio: user?.default_aspect_ratio || '16:9',
         claude_api_key: '',
         nanobanana_api_key: '',
         claude_api_base_url: user?.claude_api_base_url || '',
@@ -28,8 +25,6 @@ export function Settings() {
             setFormData(prev => ({
                 ...prev,
                 display_name: user.display_name,
-                default_resolution: user.default_resolution || '4K',
-                default_aspect_ratio: user.default_aspect_ratio || '16:9',
                 claude_api_base_url: user.claude_api_base_url || '',
                 nanobanana_api_base_url: user.nanobanana_api_base_url || '',
             }));
@@ -42,8 +37,6 @@ export function Settings() {
         try {
             const payload: any = {
                 display_name: formData.display_name,
-                default_resolution: formData.default_resolution,
-                default_aspect_ratio: formData.default_aspect_ratio,
                 claude_api_base_url: formData.claude_api_base_url || null,
                 nanobanana_api_base_url: formData.nanobanana_api_base_url || null,
             };
@@ -91,39 +84,6 @@ export function Settings() {
                             value={formData.display_name}
                             onChange={e => setFormData({ ...formData, display_name: e.target.value })}
                         />
-                    </div>
-                </CardContent>
-            </Card>
-
-            <Card>
-                <CardHeader>
-                    <CardTitle>生成偏好默认值</CardTitle>
-                    <CardDescription>设置配图生成的默认参数选项。</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="resolution">默认分辨率</Label>
-                            <Select value={formData.default_resolution} onValueChange={(v) => setFormData({ ...formData, default_resolution: v })}>
-                                <SelectTrigger id="resolution"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="1K">1K (标准)</SelectItem>
-                                    <SelectItem value="2K">2K (高清)</SelectItem>
-                                    <SelectItem value="4K">4K (出版级)</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="aspect">默认宽高比</Label>
-                            <Select value={formData.default_aspect_ratio} onValueChange={(v) => setFormData({ ...formData, default_aspect_ratio: v })}>
-                                <SelectTrigger id="aspect"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="16:9">16:9 (横向宽屏)</SelectItem>
-                                    <SelectItem value="4:3">4:3 (标准演示)</SelectItem>
-                                    <SelectItem value="1:1">1:1 (正方形)</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
                     </div>
                 </CardContent>
             </Card>
