@@ -1,25 +1,35 @@
 """Admin endpoints: system settings + user management."""
 
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BadRequestException, NotFoundException
 from app.core.security import encrypt_api_key, hash_password
 from app.dependencies import get_current_admin_user, get_db
 from app.models.system_settings import SystemSettings
+from app.models.usage import UsageLog
 from app.models.user import User
 from app.schemas.admin import (
+    AdminBalanceUpdate,
     AdminCreditUpdate,
     AdminUserCreate,
     AdminUserResponse,
     AdminUserUpdate,
 )
+from app.schemas.admin_usage import AdminUsageDailyPoint, AdminUsageSummary
 from app.schemas.system_settings import SystemSettingsResponse, SystemSettingsUpdate
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
+
+
+def _current_billing_period() -> str:
+    from datetime import datetime  # noqa: PLC0415
+
+    return datetime.utcnow().strftime("%Y-%m")
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +56,10 @@ def _settings_to_response(s: SystemSettings) -> SystemSettingsResponse:
         claude_model=s.claude_model,
         nanobanana_api_key_set=s.nanobanana_api_key_enc is not None,
         nanobanana_api_base_url=s.nanobanana_api_base_url,
+        image_price_cny=float(s.image_price_cny),
+        usd_cny_rate=float(s.usd_cny_rate),
+        claude_input_usd_per_million=float(s.claude_input_usd_per_million),
+        claude_output_usd_per_million=float(s.claude_output_usd_per_million),
     )
 
 
@@ -56,6 +70,7 @@ def _user_to_admin_response(user: User) -> AdminUserResponse:
         display_name=user.display_name,
         is_active=user.is_active,
         is_admin=user.is_admin,
+        balance_cny=float(user.balance_cny),
         nanobanana_images_quota=user.nanobanana_images_quota,
         claude_tokens_quota=user.claude_tokens_quota,
         created_at=user.created_at,
@@ -129,6 +144,104 @@ async def list_users(
     return [_user_to_admin_response(u) for u in users]
 
 
+@router.get("/usage/summary", response_model=AdminUsageSummary)
+async def get_admin_usage_summary(
+    billing_period: str | None = None,
+    _admin=Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Site-wide usage summary (admin only)."""
+    period = billing_period or _current_billing_period()
+
+    # totals
+    total_users = int((await db.execute(select(func.count(User.id)))).scalar_one())
+    total_balance = float((await db.execute(select(func.coalesce(func.sum(User.balance_cny), 0)))).scalar_one())
+
+    period_cost = float(
+        (
+            await db.execute(
+                select(func.coalesce(func.sum(UsageLog.estimated_cost_cny), 0)).where(
+                    UsageLog.billing_period == period
+                )
+            )
+        ).scalar_one()
+    )
+    total_cost = float(
+        (await db.execute(select(func.coalesce(func.sum(UsageLog.estimated_cost_cny), 0)))).scalar_one()
+    )
+
+    period_images = int(
+        (
+            await db.execute(
+                select(func.count(UsageLog.id)).where(
+                    UsageLog.billing_period == period,
+                    UsageLog.api_name == "nanobanana",
+                    UsageLog.is_success.is_(True),
+                )
+            )
+        ).scalar_one()
+    )
+
+    period_tokens = int(
+        (
+            await db.execute(
+                select(
+                    func.coalesce(func.sum(UsageLog.input_tokens + UsageLog.output_tokens), 0)
+                ).where(
+                    UsageLog.billing_period == period,
+                    UsageLog.api_name == "claude",
+                )
+            )
+        ).scalar_one()
+    )
+
+    # daily last 30 points (all time)
+    date_trunc = func.date_trunc("day", UsageLog.created_at)
+    rows = (
+        await db.execute(
+            select(
+                date_trunc.label("d"),
+                func.coalesce(func.sum(UsageLog.estimated_cost_cny), 0).label("cost"),
+                func.count(case((UsageLog.api_name == "nanobanana", 1))).label("images"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (UsageLog.api_name == "claude", UsageLog.input_tokens + UsageLog.output_tokens),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("tokens"),
+            )
+            .group_by("d")
+            .order_by(func.max(date_trunc).desc())
+            .limit(30)
+        )
+    ).all()
+
+    daily = [
+        AdminUsageDailyPoint(
+            date=r.d.date(),
+            cost_cny=float(r.cost or 0),
+            images=int(r.images or 0),
+            claude_tokens=int(r.tokens or 0),
+        )
+        for r in reversed(rows)
+        if r.d is not None
+    ]
+
+    return AdminUsageSummary(
+        billing_period=period,
+        total_users=total_users,
+        total_balance_cny=round(total_balance, 2),
+        period_cost_cny=round(period_cost, 6),
+        total_cost_cny=round(total_cost, 6),
+        period_images=period_images,
+        period_claude_tokens=period_tokens,
+        daily=daily,
+    )
+
+
 @router.post("/users", response_model=AdminUserResponse, status_code=201)
 async def create_user(
     data: AdminUserCreate,
@@ -147,6 +260,7 @@ async def create_user(
         display_name=data.display_name,
         is_admin=data.is_admin,
         nanobanana_images_quota=data.nanobanana_images_quota,
+        balance_cny=Decimal(str(data.balance_cny)),
     )
     db.add(user)
     await db.flush()
@@ -243,6 +357,36 @@ async def adjust_credits(
         )
 
     user.nanobanana_images_quota = new_quota
+    db.add(user)
+    await db.flush()
+    await db.refresh(user)
+    return _user_to_admin_response(user)
+
+
+@router.post("/users/{user_id}/balance", response_model=AdminUserResponse)
+async def adjust_balance(
+    user_id: UUID,
+    data: AdminBalanceUpdate,
+    _admin=Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Adjust a user's unified balance (CNY) (admin only).
+
+    Positive delta = add balance, negative delta = subtract balance.
+    """
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise NotFoundException("用户不存在")
+
+    new_balance = Decimal(str(user.balance_cny)) + Decimal(str(data.delta_cny))
+    if new_balance < 0:
+        raise BadRequestException(
+            f"余额不足：当前余额 ¥{float(user.balance_cny):.2f}，"
+            f"无法减少 ¥{abs(float(data.delta_cny)):.2f}"
+        )
+
+    user.balance_cny = new_balance
     db.add(user)
     await db.flush()
     await db.refresh(user)

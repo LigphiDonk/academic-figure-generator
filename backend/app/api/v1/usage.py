@@ -7,6 +7,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_active_user, get_db
+from app.models.system_settings import SystemSettings
 from app.models.usage import UsageLog
 from app.models.user import User
 from app.schemas.usage import (
@@ -28,6 +29,14 @@ def _current_billing_period() -> str:
     """Return the current billing period as YYYY-MM."""
     return datetime.utcnow().strftime("%Y-%m")
 
+async def _get_usd_cny_rate(db: AsyncSession) -> float:
+    v = (
+        await db.execute(
+            select(SystemSettings.usd_cny_rate).where(SystemSettings.id == 1)
+        )
+    ).scalar_one_or_none()
+    return float(v or 7.2)
+
 
 # ---------------------------------------------------------------------------
 # Endpoints
@@ -43,9 +52,9 @@ async def get_usage_summary(
     """Get usage summary for the given billing period.
 
     Aggregates Claude token usage, NanoBanana image count, and cost.
-    Compares against the user's quota to report remaining allowance.
     """
     period = billing_period or _current_billing_period()
+    usd_cny_rate = await _get_usd_cny_rate(db)
 
     # Claude usage
     claude_result = await db.execute(
@@ -75,24 +84,50 @@ async def get_usage_summary(
     )
     nanobanana_images: int = int(nano_result.scalar_one())
 
-    # Total cost
+    # Period cost (CNY)
     cost_result = await db.execute(
-        select(func.coalesce(func.sum(UsageLog.estimated_cost_usd), 0))
+        select(
+            func.coalesce(
+                func.sum(
+                    func.coalesce(
+                        UsageLog.estimated_cost_cny,
+                        UsageLog.estimated_cost_usd * usd_cny_rate,
+                    )
+                ),
+                0,
+            )
+        )
         .where(
             UsageLog.user_id == user.id,
             UsageLog.billing_period == period,
         )
     )
-    total_cost: float = float(cost_result.scalar_one())
+    period_cost_cny: float = float(cost_result.scalar_one())
+
+    # Total cost (CNY, all time)
+    total_cost_result = await db.execute(
+        select(
+            func.coalesce(
+                func.sum(
+                    func.coalesce(
+                        UsageLog.estimated_cost_cny,
+                        UsageLog.estimated_cost_usd * usd_cny_rate,
+                    )
+                ),
+                0,
+            )
+        ).where(UsageLog.user_id == user.id)
+    )
+    total_cost_cny: float = float(total_cost_result.scalar_one())
 
     return UsageSummary(
         billing_period=period,
+        balance_cny=float(user.balance_cny),
         claude_tokens_used=claude_tokens_used,
         claude_calls=claude_calls,
         nanobanana_images=nanobanana_images,
-        estimated_cost_usd=round(total_cost, 6),
-        quota_claude_remaining=max(0, user.claude_tokens_quota - claude_tokens_used),
-        quota_images_remaining=max(0, user.nanobanana_images_quota - nanobanana_images),
+        period_spend_cny=round(period_cost_cny, 6),
+        total_spend_cny=round(total_cost_cny, 6),
     )
 
 
@@ -104,6 +139,7 @@ async def get_usage_history(
     db: AsyncSession = Depends(get_db),
 ):
     """Get usage trend data aggregated by day, week, or month."""
+    usd_cny_rate = await _get_usd_cny_rate(db)
     if period == "daily":
         date_trunc = func.date_trunc("day", UsageLog.created_at)
     elif period == "weekly":
@@ -130,7 +166,15 @@ async def get_usage_history(
                     (UsageLog.api_name == "nanobanana", UsageLog.id),
                 )
             ).label("nanobanana_images"),
-            func.coalesce(func.sum(UsageLog.estimated_cost_usd), 0).label("cost"),
+            func.coalesce(
+                func.sum(
+                    func.coalesce(
+                        UsageLog.estimated_cost_cny,
+                        UsageLog.estimated_cost_usd * usd_cny_rate,
+                    )
+                ),
+                0,
+            ).label("cost_cny"),
         )
         .where(UsageLog.user_id == user.id)
         .group_by("period_start")
@@ -144,7 +188,7 @@ async def get_usage_history(
             date=row.period_start.strftime("%Y-%m-%d") if row.period_start else "",
             claude_tokens=int(row.claude_tokens),
             nanobanana_images=int(row.nanobanana_images),
-            cost_usd=round(float(row.cost), 6),
+            cost_cny=round(float(row.cost_cny), 6),
         )
         for row in reversed(rows)  # chronological order
     ]
@@ -160,6 +204,7 @@ async def get_usage_breakdown(
 ):
     """Get per-API usage breakdown for the given billing period."""
     period = billing_period or _current_billing_period()
+    usd_cny_rate = await _get_usd_cny_rate(db)
 
     result = await db.execute(
         select(
@@ -170,7 +215,15 @@ async def get_usage_breakdown(
             func.coalesce(
                 func.sum(UsageLog.input_tokens + UsageLog.output_tokens), 0
             ).label("total_tokens"),
-            func.coalesce(func.sum(UsageLog.estimated_cost_usd), 0).label("total_cost"),
+            func.coalesce(
+                func.sum(
+                    func.coalesce(
+                        UsageLog.estimated_cost_cny,
+                        UsageLog.estimated_cost_usd * usd_cny_rate,
+                    )
+                ),
+                0,
+            ).label("total_cost_cny"),
             func.coalesce(func.avg(UsageLog.request_duration_ms), 0).label("avg_duration"),
         )
         .where(
@@ -188,7 +241,7 @@ async def get_usage_breakdown(
             success_count=int(row.success_count),
             failure_count=int(row.failure_count),
             total_tokens=int(row.total_tokens) if row.total_tokens else None,
-            total_cost_usd=round(float(row.total_cost), 6),
+            total_cost_cny=round(float(row.total_cost_cny), 6),
             avg_duration_ms=round(float(row.avg_duration), 1),
         )
         for row in rows

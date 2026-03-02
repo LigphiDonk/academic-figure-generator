@@ -3,11 +3,39 @@ import { api } from '../lib/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { Activity, Coins, Image as ImageIcon, MessageSquare } from 'lucide-react';
+import { Coins, Image as ImageIcon, MessageSquare } from 'lucide-react';
+
+type UsageSummary = {
+    billing_period: string;
+    balance_cny: number;
+    claude_tokens_used: number;
+    claude_calls: number;
+    nanobanana_images: number;
+    period_spend_cny: number;
+    total_spend_cny: number;
+};
+
+type UsageBreakdownItem = {
+    api_name: string;
+    total_calls: number;
+    success_count: number;
+    failure_count: number;
+    total_tokens: number | null;
+    total_cost_cny: number;
+    avg_duration_ms: number;
+};
+
+type UsageHistoryPoint = {
+    date: string;
+    claude_tokens: number;
+    nanobanana_images: number;
+    cost_cny: number;
+};
 
 export function Usage() {
-    const [summary, setSummary] = useState<any>(null);
-    const [breakdown, setBreakdown] = useState<any[]>([]);
+    const [summary, setSummary] = useState<UsageSummary | null>(null);
+    const [breakdown, setBreakdown] = useState<UsageBreakdownItem[]>([]);
+    const [history, setHistory] = useState<UsageHistoryPoint[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
@@ -22,22 +50,14 @@ export function Usage() {
 
             const breakdownRes = await api.get('/usage/breakdown');
             setBreakdown(breakdownRes.data);
+
+            const historyRes = await api.get('/usage/history', { params: { period: 'daily', limit: 30 } });
+            setHistory(historyRes.data?.data || []);
         } catch (e) {
             console.error(e);
-            // Fallback mock data
-            setSummary({
-                billing_period: '2026-03',
-                claude_tokens_used: 125430,
-                claude_calls: 42,
-                nanobanana_images: 15,
-                estimated_cost_usd: 3.45,
-                quota_claude_remaining: 874570,
-                quota_images_remaining: 85
-            });
-            setBreakdown([
-                { api_name: 'Claude 3.5 Sonnet', total_calls: 42, success_count: 40, failure_count: 2, total_tokens: 125430, total_cost_usd: 1.25, avg_duration_ms: 4500 },
-                { api_name: 'NanoBanana V2', total_calls: 15, success_count: 15, failure_count: 0, total_tokens: 0, total_cost_usd: 2.20, avg_duration_ms: 12000 }
-            ]);
+            setSummary(null);
+            setBreakdown([]);
+            setHistory([]);
         } finally {
             setIsLoading(false);
         }
@@ -49,29 +69,40 @@ export function Usage() {
         <div className="space-y-6">
             <div>
                 <h1 className="text-3xl font-bold tracking-tight">用量看板</h1>
-                <p className="text-muted-foreground mt-1">查看 {summary?.billing_period} 账单周期的 Token 消耗及预估费用</p>
+                <p className="text-muted-foreground mt-1">查看 {summary?.billing_period} 账单周期的用量与费用</p>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">预估总费用</CardTitle>
+                        <CardTitle className="text-sm font-medium">本期花费</CardTitle>
                         <Coins className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">¥{summary?.estimated_cost_usd ? (summary.estimated_cost_usd * 7.2).toFixed(2) : '0.00'}</div>
-                        <p className="text-xs text-muted-foreground mt-1">当前账单周期</p>
+                        <div className="text-2xl font-bold">¥{(summary?.period_spend_cny || 0).toFixed(2)}</div>
+                        <p className="text-xs text-muted-foreground mt-1">累计花费：¥{(summary?.total_spend_cny || 0).toFixed(2)}</p>
                     </CardContent>
                 </Card>
 
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Claude Token消耗</CardTitle>
+                        <CardTitle className="text-sm font-medium">余额</CardTitle>
+                        <Coins className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">¥{(summary?.balance_cny || 0).toFixed(2)}</div>
+                        <p className="text-xs text-muted-foreground mt-1">不足时请联系管理员充值</p>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Claude Token 消耗</CardTitle>
                         <MessageSquare className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">{(summary?.claude_tokens_used || 0).toLocaleString()}</div>
-                        <p className="text-xs text-muted-foreground mt-1">剩余额度：{summary?.quota_claude_remaining?.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground mt-1">调用次数：{summary?.claude_calls || 0}</p>
                     </CardContent>
                 </Card>
 
@@ -82,18 +113,7 @@ export function Usage() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">{summary?.nanobanana_images || 0}</div>
-                        <p className="text-xs text-muted-foreground mt-1">剩余额度：{summary?.quota_images_remaining}</p>
-                    </CardContent>
-                </Card>
-
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">API 调用次数</CardTitle>
-                        <Activity className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{summary?.claude_calls || 0}</div>
-                        <p className="text-xs text-muted-foreground mt-1">总请求成功次数</p>
+                        <p className="text-xs text-muted-foreground mt-1">按成功生成计费</p>
                     </CardContent>
                 </Card>
             </div>
@@ -129,9 +149,11 @@ export function Usage() {
                                             <TableCell className="text-right">
                                                 {item.total_calls > 0 ? Math.round((item.success_count / item.total_calls) * 100) : 0}%
                                             </TableCell>
-                                            <TableCell className="text-right">{item.total_tokens > 0 ? item.total_tokens.toLocaleString() : '-'}</TableCell>
+                                            <TableCell className="text-right">
+                                                {item.total_tokens && item.total_tokens > 0 ? item.total_tokens.toLocaleString() : '-'}
+                                            </TableCell>
                                             <TableCell className="text-right">{(item.avg_duration_ms / 1000).toFixed(1)}s</TableCell>
-                                            <TableCell className="text-right">¥{(item.total_cost_usd * 7.2).toFixed(2)}</TableCell>
+                                            <TableCell className="text-right">¥{(item.total_cost_cny || 0).toFixed(2)}</TableCell>
                                         </TableRow>
                                     ))}
                                 </TableBody>
@@ -144,10 +166,37 @@ export function Usage() {
                     <Card>
                         <CardHeader>
                             <CardTitle>历史用量趋势</CardTitle>
-                            <CardDescription>查看过去 30 天的 API 调用和费用趋势。(演示图表表位)</CardDescription>
+                            <CardDescription>查看过去 30 天的 API 调用和费用趋势。</CardDescription>
                         </CardHeader>
-                        <CardContent className="h-80 flex items-center justify-center border-t bg-muted/10">
-                            <p className="text-muted-foreground">图表可视化将在此区域渲染 (例如使用 Recharts)</p>
+                        <CardContent>
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>日期</TableHead>
+                                        <TableHead className="text-right">Claude Tokens</TableHead>
+                                        <TableHead className="text-right">图片</TableHead>
+                                        <TableHead className="text-right">花费（¥）</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {history.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={4} className="text-center text-muted-foreground">
+                                                暂无数据
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : (
+                                        history.map((p, idx) => (
+                                            <TableRow key={idx}>
+                                                <TableCell>{p.date}</TableCell>
+                                                <TableCell className="text-right">{(p.claude_tokens || 0).toLocaleString()}</TableCell>
+                                                <TableCell className="text-right">{p.nanobanana_images || 0}</TableCell>
+                                                <TableCell className="text-right">¥{(p.cost_cny || 0).toFixed(2)}</TableCell>
+                                            </TableRow>
+                                        ))
+                                    )}
+                                </TableBody>
+                            </Table>
                         </CardContent>
                     </Card>
                 </TabsContent>

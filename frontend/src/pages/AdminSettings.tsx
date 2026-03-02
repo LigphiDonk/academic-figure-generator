@@ -13,6 +13,10 @@ interface SystemSettings {
     claude_model: string | null;
     nanobanana_api_key_set: boolean;
     nanobanana_api_base_url: string | null;
+    image_price_cny: number | null;
+    usd_cny_rate: number | null;
+    claude_input_usd_per_million: number | null;
+    claude_output_usd_per_million: number | null;
 }
 
 export function AdminSettings() {
@@ -27,6 +31,10 @@ export function AdminSettings() {
         claude_model: null,
         nanobanana_api_key_set: false,
         nanobanana_api_base_url: null,
+        image_price_cny: null,
+        usd_cny_rate: null,
+        claude_input_usd_per_million: null,
+        claude_output_usd_per_million: null,
     });
 
     const [formData, setFormData] = useState({
@@ -35,6 +43,10 @@ export function AdminSettings() {
         claude_model: '',
         nanobanana_api_key: '',
         nanobanana_api_base_url: '',
+        image_price_cny: '',
+        usd_cny_rate: '',
+        claude_input_usd_per_million: '',
+        claude_output_usd_per_million: '',
     });
 
     useEffect(() => {
@@ -52,6 +64,10 @@ export function AdminSettings() {
                 claude_api_base_url: data.claude_api_base_url || '',
                 claude_model: data.claude_model || '',
                 nanobanana_api_base_url: data.nanobanana_api_base_url || '',
+                image_price_cny: data.image_price_cny != null ? String(data.image_price_cny) : '',
+                usd_cny_rate: data.usd_cny_rate != null ? String(data.usd_cny_rate) : '',
+                claude_input_usd_per_million: data.claude_input_usd_per_million != null ? String(data.claude_input_usd_per_million) : '',
+                claude_output_usd_per_million: data.claude_output_usd_per_million != null ? String(data.claude_output_usd_per_million) : '',
             }));
         } catch (e) {
             console.error('Failed to fetch system settings:', e);
@@ -73,6 +89,11 @@ export function AdminSettings() {
 
             if (formData.nanobanana_api_key) payload.nanobanana_api_key = formData.nanobanana_api_key;
             payload.nanobanana_api_base_url = formData.nanobanana_api_base_url || null;
+
+            if (formData.image_price_cny !== '') payload.image_price_cny = parseFloat(formData.image_price_cny);
+            if (formData.usd_cny_rate !== '') payload.usd_cny_rate = parseFloat(formData.usd_cny_rate);
+            if (formData.claude_input_usd_per_million !== '') payload.claude_input_usd_per_million = parseFloat(formData.claude_input_usd_per_million);
+            if (formData.claude_output_usd_per_million !== '') payload.claude_output_usd_per_million = parseFloat(formData.claude_output_usd_per_million);
 
             const res = await api.put('/admin/settings', payload);
             setSettings(res.data);
@@ -208,6 +229,71 @@ export function AdminSettings() {
                     <Button onClick={handleSave} disabled={isLoading}>
                         {isLoading && <RefreshCw className="w-4 h-4 mr-2 animate-spin" />}
                         保存系统设置
+                    </Button>
+                </CardFooter>
+            </Card>
+
+            {/* Pricing Settings */}
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <Server className="w-5 h-5" />
+                        计费配置
+                    </CardTitle>
+                    <CardDescription>配置图片单价、汇率与 Claude Token 单价（按官网价格/每 100 万 Tokens）。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="price_image">图片单价（¥/张）</Label>
+                        <Input
+                            id="price_image"
+                            type="number"
+                            step="0.01"
+                            placeholder="1.5"
+                            value={formData.image_price_cny}
+                            onChange={e => setFormData({ ...formData, image_price_cny: e.target.value })}
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="price_fx">USD→CNY 汇率</Label>
+                        <Input
+                            id="price_fx"
+                            type="number"
+                            step="0.0001"
+                            placeholder="7.2"
+                            value={formData.usd_cny_rate}
+                            onChange={e => setFormData({ ...formData, usd_cny_rate: e.target.value })}
+                        />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="price_claude_in">Claude 输入单价（USD / 1M）</Label>
+                            <Input
+                                id="price_claude_in"
+                                type="number"
+                                step="0.01"
+                                placeholder="3"
+                                value={formData.claude_input_usd_per_million}
+                                onChange={e => setFormData({ ...formData, claude_input_usd_per_million: e.target.value })}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="price_claude_out">Claude 输出单价（USD / 1M）</Label>
+                            <Input
+                                id="price_claude_out"
+                                type="number"
+                                step="0.01"
+                                placeholder="15"
+                                value={formData.claude_output_usd_per_million}
+                                onChange={e => setFormData({ ...formData, claude_output_usd_per_million: e.target.value })}
+                            />
+                        </div>
+                    </div>
+                </CardContent>
+                <CardFooter className="flex justify-end border-t bg-muted/40 p-4">
+                    <Button onClick={handleSave} disabled={isLoading}>
+                        {isLoading && <RefreshCw className="w-4 h-4 mr-2 animate-spin" />}
+                        保存计费配置
                     </Button>
                 </CardFooter>
             </Card>

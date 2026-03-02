@@ -3,19 +3,19 @@ from pydantic import BaseModel
 
 class UsageSummary(BaseModel):
     billing_period: str
+    balance_cny: float
     claude_tokens_used: int
     claude_calls: int
     nanobanana_images: int
-    estimated_cost_usd: float
-    quota_claude_remaining: int
-    quota_images_remaining: int
+    period_spend_cny: float
+    total_spend_cny: float
 
 
 class UsageHistoryPoint(BaseModel):
     date: str
     claude_tokens: int
     nanobanana_images: int
-    cost_usd: float
+    cost_cny: float
 
 
 class UsageBreakdown(BaseModel):
@@ -24,7 +24,7 @@ class UsageBreakdown(BaseModel):
     success_count: int
     failure_count: int
     total_tokens: int | None
-    total_cost_usd: float
+    total_cost_cny: float
     avg_duration_ms: float
 
 

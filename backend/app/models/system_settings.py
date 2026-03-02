@@ -1,6 +1,8 @@
 """SystemSettings model – key/value store for admin-configurable settings."""
 
-from sqlalchemy import Integer, String, Text
+from decimal import Decimal
+
+from sqlalchemy import Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TimestampMixin
@@ -44,4 +46,30 @@ class SystemSettings(Base, TimestampMixin):
         String(500),
         nullable=True,
         comment="Custom NanoBanana API base URL",
+    )
+
+    # Billing / Pricing
+    image_price_cny: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+        default=Decimal("1.50"),
+        comment="Price per generated image in CNY",
+    )
+    usd_cny_rate: Mapped[Decimal] = mapped_column(
+        Numeric(10, 4),
+        nullable=False,
+        default=Decimal("7.2000"),
+        comment="USD->CNY conversion rate for billing",
+    )
+    claude_input_usd_per_million: Mapped[Decimal] = mapped_column(
+        Numeric(10, 4),
+        nullable=False,
+        default=Decimal("3.0000"),
+        comment="Claude input price (USD per 1M tokens)",
+    )
+    claude_output_usd_per_million: Mapped[Decimal] = mapped_column(
+        Numeric(10, 4),
+        nullable=False,
+        default=Decimal("15.0000"),
+        comment="Claude output price (USD per 1M tokens)",
     )

@@ -1,6 +1,7 @@
 """Prompt generation and management endpoints."""
 
 from uuid import UUID
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -79,6 +80,12 @@ async def generate_prompts(
     Returns a Celery task ID for status polling.
     """
     project = await _get_owned_project(project_id, user, db)
+
+    if Decimal(str(user.balance_cny)) <= Decimal("0"):
+        raise BadRequestException(
+            f"余额不足：当前余额 ¥{float(user.balance_cny):.2f}。"
+            "请联系管理员充值后再生成提示词。"
+        )
 
     # Find the most recent completed document for this project
     result = await db.execute(

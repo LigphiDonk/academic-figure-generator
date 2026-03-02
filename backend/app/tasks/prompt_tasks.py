@@ -31,9 +31,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import traceback
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -42,6 +44,7 @@ from celery.exceptions import MaxRetriesExceededError, SoftTimeLimitExceeded
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.billing import compute_claude_cost_usd, usd_to_cny
 from app.core.prompts.color_schemes import PRESET_COLOR_SCHEMES, OKABE_ITO
 from app.core.prompts.figure_types import FIGURE_TYPES
 from app.core.prompts.system_prompt import ACADEMIC_FIGURE_SYSTEM_PROMPT
@@ -122,11 +125,12 @@ def _call_claude_api(
     model: str,
     max_tokens: int,
     timeout: float = 210.0,
-) -> str:
+) -> tuple[str, int, int, int, int]:
     """
     Synchronously call the Claude Messages API.
 
-    Returns the raw text content of the assistant's first message.
+    Returns:
+      (text, input_tokens, output_tokens, status_code, duration_ms)
     Raises httpx.HTTPStatusError on 4xx/5xx.
     """
     headers = {
@@ -142,13 +146,19 @@ def _call_claude_api(
     }
 
     with httpx.Client(timeout=timeout) as client:
+        t0 = time.perf_counter()
         response = client.post(api_url, headers=headers, json=payload)
+        duration_ms = int((time.perf_counter() - t0) * 1000)
         response.raise_for_status()
         data = response.json()
 
+    usage = data.get("usage") or {}
+    input_tokens = int(usage.get("input_tokens") or 0)
+    output_tokens = int(usage.get("output_tokens") or 0)
+
     for block in data.get("content", []):
         if block.get("type") == "text":
-            return block["text"]
+            return block["text"], input_tokens, output_tokens, int(response.status_code), duration_ms
 
     raise ValueError(f"Unexpected Claude API response structure: {data}")
 
@@ -197,6 +207,94 @@ def _get_system_claude_settings(db: Session) -> tuple[str | None, str | None, st
     if not row:
         return None, None, None
     return row[0], row[1], row[2]
+
+def _get_pricing(db: Session) -> tuple[Decimal, Decimal, Decimal, Decimal]:
+    """Fetch pricing from system_settings with safe defaults.
+
+    Returns: (usd_cny_rate, image_price_cny, claude_in_usd_per_m, claude_out_usd_per_m)
+    """
+    row = db.execute(
+        text(
+            "SELECT usd_cny_rate, image_price_cny, claude_input_usd_per_million, claude_output_usd_per_million "
+            "FROM system_settings WHERE id = 1"
+        )
+    ).fetchone()
+    if not row:
+        return Decimal("7.2"), Decimal("1.5"), Decimal("3.0"), Decimal("15.0")
+    usd_cny_rate = Decimal(str(row[0] if row[0] is not None else "7.2"))
+    image_price_cny = Decimal(str(row[1] if row[1] is not None else "1.5"))
+    claude_in = Decimal(str(row[2] if row[2] is not None else "3.0"))
+    claude_out = Decimal(str(row[3] if row[3] is not None else "15.0"))
+    return usd_cny_rate, image_price_cny, claude_in, claude_out
+
+
+def _current_billing_period() -> str:
+    return datetime.utcnow().strftime("%Y-%m")
+
+
+def _log_claude_usage(
+    db: Session,
+    *,
+    user_id: str,
+    project_id: str,
+    api_endpoint: str,
+    claude_model: str,
+    key_source: str,
+    billing_period: str,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    request_duration_ms: int | None = None,
+    status_code: int | None = None,
+    is_success: bool,
+    error_message: str | None = None,
+    estimated_cost_usd: Decimal | None = None,
+    estimated_cost_cny: Decimal | None = None,
+) -> None:
+    """Best-effort usage log entry for Claude."""
+    try:
+        db.execute(
+            text(
+                """
+                INSERT INTO usage_logs (
+                    id, user_id, project_id,
+                    api_name, api_endpoint,
+                    input_tokens, output_tokens,
+                    claude_model, request_duration_ms,
+                    key_source, is_success, status_code, error_message,
+                    estimated_cost_usd, estimated_cost_cny,
+                    billing_period, created_at
+                ) VALUES (
+                    :id, :user_id, :project_id,
+                    'claude', :api_endpoint,
+                    :input_tokens, :output_tokens,
+                    :claude_model, :request_duration_ms,
+                    :key_source, :is_success, :status_code, :error_message,
+                    :estimated_cost_usd, :estimated_cost_cny,
+                    :billing_period, :now
+                )
+                """
+            ),
+            {
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "project_id": project_id,
+                "api_endpoint": api_endpoint[:200] if api_endpoint else None,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "claude_model": claude_model,
+                "request_duration_ms": request_duration_ms,
+                "key_source": key_source,
+                "is_success": is_success,
+                "status_code": status_code,
+                "error_message": (error_message or "")[:2000] if error_message else None,
+                "estimated_cost_usd": estimated_cost_usd,
+                "estimated_cost_cny": estimated_cost_cny,
+                "billing_period": billing_period,
+                "now": datetime.now(UTC),
+            },
+        )
+    except Exception:
+        logger.exception("Failed to log Claude usage")
 
 
 # ---------------------------------------------------------------------------
@@ -464,6 +562,8 @@ def generate_prompts_task(
         effective_api_url = _normalize_claude_api_url(system_api_base_url)
         effective_model = system_model or CLAUDE_MODEL
         effective_max_tokens = CLAUDE_MAX_TOKENS
+        billing_period = _current_billing_period()
+        usd_cny_rate, _image_price_cny, claude_in_usd_per_m, claude_out_usd_per_m = _get_pricing(db)
 
         result = db.execute(
             text("SELECT claude_api_key_enc FROM users WHERE id = :uid"),
@@ -474,12 +574,15 @@ def generate_prompts_task(
 
         if encrypted_key:
             api_key = decrypt_api_key(encrypted_key)
+            key_source = "byok"
             logger.info("Using BYOK Claude key for user_id=%s", user_id)
         elif CLAUDE_API_KEY:
             api_key = CLAUDE_API_KEY
+            key_source = "platform"
             logger.info("Using platform Claude key from env")
         elif system_key_enc:
             api_key = decrypt_api_key(system_key_enc)
+            key_source = "platform"
             logger.info("Using platform Claude key from system settings")
         else:
             raise ValueError(
@@ -505,7 +608,7 @@ def generate_prompts_task(
             effective_model,
             effective_max_tokens,
         )
-        raw_response = _call_claude_api(
+        raw_text, input_tokens, output_tokens, status_code, duration_ms = _call_claude_api(
             user_prompt=user_prompt,
             api_key=api_key,
             api_url=effective_api_url,
@@ -513,10 +616,41 @@ def generate_prompts_task(
             max_tokens=effective_max_tokens,
         )
 
+        estimated_cost_usd = compute_claude_cost_usd(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            input_usd_per_million=claude_in_usd_per_m,
+            output_usd_per_million=claude_out_usd_per_m,
+        )
+        estimated_cost_cny = usd_to_cny(estimated_cost_usd, usd_cny_rate)
+
+        _log_claude_usage(
+            db,
+            user_id=user_id,
+            project_id=project_id,
+            api_endpoint=effective_api_url,
+            claude_model=effective_model,
+            key_source=key_source,
+            billing_period=billing_period,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            request_duration_ms=duration_ms,
+            status_code=status_code,
+            is_success=True,
+            estimated_cost_usd=estimated_cost_usd,
+            estimated_cost_cny=estimated_cost_cny,
+        )
+
+        # Deduct balance (best effort; allow going negative to avoid blocking usage tracking)
+        db.execute(
+            text("UPDATE users SET balance_cny = balance_cny - :cost WHERE id = :uid"),
+            {"cost": estimated_cost_cny, "uid": user_id},
+        )
+
         # ------------------------------------------------------------------
         # 6. Parse response
         # ------------------------------------------------------------------
-        figures = _parse_figure_prompts(raw_response)
+        figures = _parse_figure_prompts(raw_text)
         logger.info("Parsed %d figure prompts from Claude response", len(figures))
 
         # ------------------------------------------------------------------
@@ -596,6 +730,22 @@ def generate_prompts_task(
             countdown = 30 * (2 ** self.request.retries)  # 30s, 60s
             raise self.retry(exc=exc, countdown=countdown)
         except MaxRetriesExceededError:
+            _log_claude_usage(
+                db,
+                user_id=user_id,
+                project_id=project_id,
+                api_endpoint=effective_api_url if "effective_api_url" in locals() else "",
+                claude_model=effective_model if "effective_model" in locals() else "",
+                key_source=key_source if "key_source" in locals() else "platform",
+                billing_period=_current_billing_period(),
+                is_success=False,
+                status_code=getattr(getattr(exc, "response", None), "status_code", None),
+                error_message=str(exc),
+            )
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
             raise
 
     except Exception as exc:
@@ -603,6 +753,21 @@ def generate_prompts_task(
             "Unexpected error in generate_prompts_task | document_id=%s\n%s",
             document_id, traceback.format_exc(),
         )
+        _log_claude_usage(
+            db,
+            user_id=user_id,
+            project_id=project_id,
+            api_endpoint=effective_api_url if "effective_api_url" in locals() else "",
+            claude_model=effective_model if "effective_model" in locals() else "",
+            key_source=key_source if "key_source" in locals() else "platform",
+            billing_period=_current_billing_period(),
+            is_success=False,
+            error_message=str(exc),
+        )
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
         raise
 
     finally:

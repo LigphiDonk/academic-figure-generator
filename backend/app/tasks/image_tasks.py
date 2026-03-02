@@ -36,6 +36,7 @@ import struct
 import traceback
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -46,6 +47,7 @@ from minio.error import S3Error
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.billing import cny_to_usd
 from app.core.security import decrypt_api_key
 from app.tasks.celery_app import celery_app
 from app.tasks.db import _get_session
@@ -89,6 +91,17 @@ ASPECT_RATIO_MAP: dict[str, tuple[float, float]] = {
     "3:2":  (3.0, 2.0),
     "2:3":  (2.0, 3.0),
 }
+
+def _get_pricing(db: Session) -> tuple[Decimal, Decimal]:
+    """Fetch (usd_cny_rate, image_price_cny) from system_settings with defaults."""
+    row = db.execute(
+        text("SELECT usd_cny_rate, image_price_cny FROM system_settings WHERE id = 1")
+    ).fetchone()
+    if not row:
+        return Decimal("7.2"), Decimal("1.5")
+    usd_cny_rate = Decimal(str(row[0] if row[0] is not None else "7.2"))
+    image_price_cny = Decimal(str(row[1] if row[1] is not None else "1.5"))
+    return usd_cny_rate, image_price_cny
 
 
 def _compute_dimensions(resolution: str, aspect_ratio: str) -> tuple[int, int]:
@@ -502,6 +515,10 @@ def generate_image_task(
         # ------------------------------------------------------------------
         # 9. Log API usage in usage_logs table
         # ------------------------------------------------------------------
+        usd_cny_rate, image_price_cny = _get_pricing(db)
+        estimated_cost_cny = image_price_cny
+        estimated_cost_usd = cny_to_usd(estimated_cost_cny, usd_cny_rate)
+
         usage_id = str(uuid.uuid4())
         db.execute(
             text(
@@ -509,11 +526,13 @@ def generate_image_task(
                 INSERT INTO usage_logs (
                     id, user_id, api_name, api_endpoint,
                     resolution, aspect_ratio,
+                    estimated_cost_usd, estimated_cost_cny,
                     key_source, is_success, status_code,
                     billing_period, created_at
                 ) VALUES (
                     :id, :user_id, 'nanobanana', :api_endpoint,
                     :resolution, :aspect_ratio,
+                    :estimated_cost_usd, :estimated_cost_cny,
                     :key_source, TRUE, 200,
                     :billing_period, :now
                 )
@@ -525,10 +544,18 @@ def generate_image_task(
                 "api_endpoint": f"{NANOBANANA_API_BASE}/v1beta/models/gemini-3-pro-image-preview:generateContent",
                 "resolution": resolution,
                 "aspect_ratio": aspect_ratio,
+                "estimated_cost_usd": estimated_cost_usd,
+                "estimated_cost_cny": estimated_cost_cny,
                 "key_source": key_source,
                 "billing_period": billing_period,
                 "now": completed_at,
             },
+        )
+
+        # Deduct unified balance (best-effort; API side should pre-check for enough balance)
+        db.execute(
+            text("UPDATE users SET balance_cny = balance_cny - :cost WHERE id = :uid"),
+            {"cost": estimated_cost_cny, "uid": user_id},
         )
         db.commit()
 
@@ -640,11 +667,13 @@ def _log_failed_usage(
                 INSERT INTO usage_logs (
                     id, user_id, api_name, api_endpoint,
                     resolution, aspect_ratio,
+                    estimated_cost_usd, estimated_cost_cny,
                     key_source, is_success, status_code, error_message,
                     billing_period, created_at
                 ) VALUES (
                     :id, :user_id, 'nanobanana', :api_endpoint,
                     :resolution, :aspect_ratio,
+                    :estimated_cost_usd, :estimated_cost_cny,
                     :key_source, FALSE, :status_code, :error_message,
                     :billing_period, :now
                 )
@@ -656,6 +685,8 @@ def _log_failed_usage(
                 "api_endpoint": f"{NANOBANANA_API_BASE}/v1beta/models/gemini-3-pro-image-preview:generateContent",
                 "resolution": resolution,
                 "aspect_ratio": aspect_ratio,
+                "estimated_cost_usd": Decimal("0"),
+                "estimated_cost_cny": Decimal("0"),
                 "key_source": key_source,
                 "status_code": status_code,
                 "error_message": error_message[:2000],

@@ -6,6 +6,7 @@ import logging
 import mimetypes
 from urllib.parse import quote
 from uuid import UUID
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Form, UploadFile
 from fastapi.responses import StreamingResponse
@@ -131,6 +132,17 @@ async def _ensure_nanobanana_key_available(user: User, db: AsyncSession) -> None
         "或在用户设置中填写 BYOK（NanoBanana API Key）。"
     )
 
+async def _get_image_price_cny(db: AsyncSession) -> Decimal:
+    """Return current per-image price in CNY (defaults to 1.5)."""
+    v = (
+        await db.execute(
+            select(SystemSettings.image_price_cny).where(SystemSettings.id == 1)
+        )
+    ).scalar_one_or_none()
+    if v is None:
+        return Decimal("1.5")
+    return Decimal(str(v))
+
 
 # ---------------------------------------------------------------------------
 # Endpoints
@@ -155,10 +167,11 @@ async def generate_image_from_prompt(
     prompt = await _get_owned_prompt(prompt_id, user, db)
     await _ensure_nanobanana_key_available(user, db)
 
-    # Credit check
-    if user.nanobanana_images_quota < 1:
+    image_price_cny = await _get_image_price_cny(db)
+    if Decimal(str(user.balance_cny)) < image_price_cny:
         raise BadRequestException(
-            "生图额度不足：当前额度为 0，请联系管理员增加额度。"
+            f"余额不足：当前余额 ¥{float(user.balance_cny):.2f}，"
+            f"生成 1 张图片需要 ¥{float(image_price_cny):.2f}。"
         )
 
     if not prompt.active_prompt:
@@ -198,11 +211,6 @@ async def generate_image_from_prompt(
     image.generation_task_id = task.id
     db.add(image)
 
-    # Deduct 1 credit
-    user.nanobanana_images_quota -= 1
-    db.add(user)
-    await db.flush()
-
     return ImageStatusResponse(
         id=image.id,
         generation_status=image.generation_status,
@@ -227,10 +235,11 @@ async def generate_image_direct(
     project_id = data.project_id
     await _ensure_nanobanana_key_available(user, db)
 
-    # Credit check
-    if user.nanobanana_images_quota < 1:
+    image_price_cny = await _get_image_price_cny(db)
+    if Decimal(str(user.balance_cny)) < image_price_cny:
         raise BadRequestException(
-            "生图额度不足：当前额度为 0，请联系管理员增加额度。"
+            f"余额不足：当前余额 ¥{float(user.balance_cny):.2f}，"
+            f"生成 1 张图片需要 ¥{float(image_price_cny):.2f}。"
         )
 
     if project_id is None:
@@ -287,11 +296,6 @@ async def generate_image_direct(
 
     image.generation_task_id = task.id
     db.add(image)
-
-    # Deduct 1 credit
-    user.nanobanana_images_quota -= 1
-    db.add(user)
-    await db.flush()
 
     return ImageStatusResponse(
         id=image.id,

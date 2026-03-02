@@ -95,6 +95,11 @@ class UsageLog(Base):
         Numeric(10, 6),
         nullable=True,
     )
+    estimated_cost_cny: Mapped[Optional[Numeric]] = mapped_column(
+        Numeric(12, 6),
+        nullable=True,
+        comment="Estimated cost in CNY (preferred display currency)",
+    )
     billing_period: Mapped[str] = mapped_column(
         String(7),
         nullable=False,

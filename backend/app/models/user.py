@@ -1,6 +1,8 @@
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, Integer, String, Text
+from decimal import Decimal
+
+from sqlalchemy import Boolean, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -90,6 +92,12 @@ class User(Base, TimestampMixin):
         Integer,
         default=0,
         nullable=False,
+    )
+    balance_cny: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        default=0,
+        nullable=False,
+        comment="Unified user balance in CNY",
     )
 
     # Relationships

@@ -16,6 +16,7 @@ class AdminUserResponse(BaseModel):
     display_name: str | None
     is_active: bool
     is_admin: bool
+    balance_cny: float
     nanobanana_images_quota: int
     claude_tokens_quota: int
     created_at: datetime
@@ -30,6 +31,7 @@ class AdminUserCreate(BaseModel):
     display_name: str | None = None
     is_admin: bool = False
     nanobanana_images_quota: int = 0
+    balance_cny: float = 0.0
 
     @field_validator("password")
     @classmethod
@@ -47,6 +49,7 @@ class AdminUserUpdate(BaseModel):
     is_admin: bool | None = None
     nanobanana_images_quota: int | None = None
     claude_tokens_quota: int | None = None
+    balance_cny: float | None = None
 
 
 class AdminCreditUpdate(BaseModel):
@@ -59,4 +62,17 @@ class AdminCreditUpdate(BaseModel):
     def delta_not_zero(cls, v: int) -> int:
         if v == 0:
             raise ValueError("额度调整值不能为 0")
+        return v
+
+
+class AdminBalanceUpdate(BaseModel):
+    """Adjust user balance in CNY (positive = add, negative = subtract)."""
+
+    delta_cny: float
+
+    @field_validator("delta_cny")
+    @classmethod
+    def delta_cny_not_zero(cls, v: float) -> float:
+        if v == 0:
+            raise ValueError("余额调整值不能为 0")
         return v
