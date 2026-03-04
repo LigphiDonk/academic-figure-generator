@@ -6,6 +6,7 @@ import { api } from '../lib/api';
 import { useProjectStore } from '../store/projectStore';
 import { fetchAuthedBlob, triggerBrowserDownload } from '../lib/blob';
 import { useAuthStore } from '../store/authStore';
+import { getApiErrorMessage } from '../lib/apiError';
 
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
@@ -407,8 +408,7 @@ export function ProjectWorkspace() {
             await fetchProjectData(id, { showLoader: false });
         } catch (err: any) {
             console.error('Failed to auto-generate', err);
-            const detail = err?.response?.data?.detail;
-            alert(detail ? `生成配图失败：${detail}` : '生成配图失败，请稍后重试。');
+            alert(`生成配图失败：${getApiErrorMessage(err, '请稍后重试。')}`);
         } finally {
             setIsAutoGenerating(false);
         }
@@ -428,12 +428,12 @@ export function ProjectWorkspace() {
         } catch (err: any) {
             console.error('Failed to generate image', err);
             const code = err?.response?.data?.error;
-            const detail = err?.response?.data?.detail;
+            const msg = getApiErrorMessage(err, '生成图片失败，请稍后重试。');
             if (code === 'INSUFFICIENT_BALANCE') {
-                alert(detail || '余额不足，无法生成图片。');
+                alert(msg);
                 return;
             }
-            alert(detail ? `生成图片失败：${detail}` : '生成图片失败，请稍后重试。');
+            alert(`生成图片失败：${msg}`);
         }
     };
 
@@ -446,13 +446,14 @@ export function ProjectWorkspace() {
         try {
             const formData = new FormData();
             formData.append('edit_instruction', instruction);
-            await api.post(`/images/${imageId}/edit`, formData);
+            await api.post(`/images/${imageId}/edit`, formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
             setEditInstructions(prev => ({ ...prev, [imageId]: '' }));
             await fetchProjectData(id, { showLoader: false });
         } catch (err: any) {
             console.error('Edit image failed', err);
-            const detail = err?.response?.data?.detail;
-            alert(detail ? `改图失败：${detail}` : '改图失败，请稍后重试。');
+            alert(`改图失败：${getApiErrorMessage(err, '请稍后重试。')}`);
         } finally {
             setIsEditing(prev => ({ ...prev, [imageId]: false }));
         }

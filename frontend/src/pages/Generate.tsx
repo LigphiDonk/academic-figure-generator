@@ -7,6 +7,7 @@ import { Loader2, Wand2, Image as ImageIcon, Download, AlertCircle } from 'lucid
 import { useAuthStore } from '../store/authStore';
 import { api } from '../lib/api';
 import { fetchAuthedBlob } from '../lib/blob';
+import { getApiErrorMessage } from '../lib/apiError';
 
 type ImagePricing = {
    currency: string;
@@ -108,12 +109,8 @@ export function Generate() {
       } catch (e: any) {
          console.error(e);
          const code = e.response?.data?.error;
-         const detail = e.response?.data?.detail;
-         if (code === 'INSUFFICIENT_BALANCE') {
-            setError(detail || '余额不足，无法生成图片。');
-         } else {
-            setError(detail || '请求失败，请检查网络连接');
-         }
+         const msg = getApiErrorMessage(e, code === 'INSUFFICIENT_BALANCE' ? '余额不足，无法生成图片。' : '请求失败，请检查网络连接');
+         setError(msg);
          setResultImage(null);
          setIsGenerating(false);
       }
