@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthGuard } from './components/AuthGuard';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
-import { Register } from './pages/Register';
+import { LinuxDOCallback } from './pages/LinuxDOCallback';
 import { Projects } from './pages/Projects';
 import { ProjectWorkspace } from './pages/ProjectWorkspace';
 import { ColorSchemes } from './pages/ColorSchemes';
@@ -17,7 +17,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
+        <Route path="/auth/linuxdo/callback" element={<LinuxDOCallback />} />
 
         {/* Protected Routes */}
         <Route element={<AuthGuard />}>

@@ -5,7 +5,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
-import { RefreshCw, CheckCircle2, Shield, Server } from 'lucide-react';
+import { RefreshCw, CheckCircle2, Shield, Server, Globe } from 'lucide-react';
 
 interface SystemSettings {
     claude_api_key_set: boolean;
@@ -21,6 +21,9 @@ interface SystemSettings {
     usd_cny_rate: number | null;
     claude_input_usd_per_million: number | null;
     claude_output_usd_per_million: number | null;
+    linuxdo_client_id: string | null;
+    linuxdo_client_secret_set: boolean;
+    linuxdo_redirect_uri: string | null;
 }
 
 export function AdminSettings() {
@@ -43,6 +46,9 @@ export function AdminSettings() {
         usd_cny_rate: null,
         claude_input_usd_per_million: null,
         claude_output_usd_per_million: null,
+        linuxdo_client_id: null,
+        linuxdo_client_secret_set: false,
+        linuxdo_redirect_uri: null,
     });
 
     const [formData, setFormData] = useState({
@@ -59,6 +65,9 @@ export function AdminSettings() {
         usd_cny_rate: '',
         claude_input_usd_per_million: '',
         claude_output_usd_per_million: '',
+        linuxdo_client_id: '',
+        linuxdo_client_secret: '',
+        linuxdo_redirect_uri: '',
     });
 
     useEffect(() => {
@@ -84,6 +93,8 @@ export function AdminSettings() {
                 usd_cny_rate: data.usd_cny_rate != null ? String(data.usd_cny_rate) : '',
                 claude_input_usd_per_million: data.claude_input_usd_per_million != null ? String(data.claude_input_usd_per_million) : '',
                 claude_output_usd_per_million: data.claude_output_usd_per_million != null ? String(data.claude_output_usd_per_million) : '',
+                linuxdo_client_id: data.linuxdo_client_id || '',
+                linuxdo_redirect_uri: data.linuxdo_redirect_uri || '',
             }));
         } catch (e) {
             console.error('Failed to fetch system settings:', e);
@@ -107,6 +118,11 @@ export function AdminSettings() {
             payload.nanobanana_api_base_url = formData.nanobanana_api_base_url || null;
             payload.nanobanana_model = formData.nanobanana_model || null;
 
+            // LinuxDO OAuth
+            payload.linuxdo_client_id = formData.linuxdo_client_id || null;
+            if (formData.linuxdo_client_secret) payload.linuxdo_client_secret = formData.linuxdo_client_secret;
+            payload.linuxdo_redirect_uri = formData.linuxdo_redirect_uri || null;
+
             if (formData.image_price_cny !== '') payload.image_price_cny = parseFloat(formData.image_price_cny);
             if (formData.image_price_cny_1k !== '') payload.image_price_cny_1k = parseFloat(formData.image_price_cny_1k);
             if (formData.image_price_cny_2k !== '') payload.image_price_cny_2k = parseFloat(formData.image_price_cny_2k);
@@ -120,7 +136,7 @@ export function AdminSettings() {
             setSuccess('系统设置保存成功！');
 
             // Clear key fields after save
-            setFormData(prev => ({ ...prev, claude_api_key: '', nanobanana_api_key: '' }));
+            setFormData(prev => ({ ...prev, claude_api_key: '', nanobanana_api_key: '', linuxdo_client_secret: '' }));
         } catch (e) {
             console.error(e);
             alert('保存系统设置失败，请重试');
@@ -158,6 +174,62 @@ export function AdminSettings() {
                 </h1>
                 <p className="text-muted-foreground mt-1">管理系统级 API 密钥、请求地址和模型配置。这些设置为所有用户提供默认值。</p>
             </div>
+
+            {/* Linux DO OAuth Settings */}
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <Globe className="w-5 h-5" />
+                        Linux DO OAuth 配置
+                    </CardTitle>
+                    <CardDescription>配置 Linux DO OAuth 登录。配置完成后，登录页将自动切换为 Linux DO 登录按钮。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="linuxdo_client_id">Client ID</Label>
+                        <Input
+                            id="linuxdo_client_id"
+                            placeholder="输入 Linux DO OAuth Client ID"
+                            value={formData.linuxdo_client_id}
+                            onChange={e => setFormData({ ...formData, linuxdo_client_id: e.target.value })}
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                            <Label htmlFor="linuxdo_client_secret">Client Secret</Label>
+                            {settings.linuxdo_client_secret_set && (
+                                <span className="flex items-center text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full"><CheckCircle2 className="w-3 h-3 mr-1" /> 已配置</span>
+                            )}
+                        </div>
+                        <Input
+                            id="linuxdo_client_secret"
+                            type="password"
+                            placeholder={settings.linuxdo_client_secret_set ? "****** (已设置，留空保持不变)" : "输入 Linux DO OAuth Client Secret"}
+                            value={formData.linuxdo_client_secret}
+                            onChange={e => setFormData({ ...formData, linuxdo_client_secret: e.target.value })}
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="linuxdo_redirect_uri">回调地址（Redirect URI）</Label>
+                        <Input
+                            id="linuxdo_redirect_uri"
+                            placeholder="https://fig.keepgo.de5.net/api/v1/auth/linuxdo/callback"
+                            value={formData.linuxdo_redirect_uri}
+                            onChange={e => setFormData({ ...formData, linuxdo_redirect_uri: e.target.value })}
+                        />
+                        <p className="text-xs text-muted-foreground">此地址需与 Linux DO OAuth 应用中配置的回调地址一致。格式：https://你的域名/api/v1/auth/linuxdo/callback</p>
+                    </div>
+                </CardContent>
+                <CardFooter className="flex justify-between border-t bg-muted/40 p-4">
+                    <div>
+                        {success && <p className="text-sm text-green-600 font-medium">{success}</p>}
+                    </div>
+                    <Button onClick={handleSave} disabled={isLoading}>
+                        {isLoading && <RefreshCw className="w-4 h-4 mr-2 animate-spin" />}
+                        保存 OAuth 配置
+                    </Button>
+                </CardFooter>
+            </Card>
 
             {/* Claude API Settings */}
             <Card>

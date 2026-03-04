@@ -19,6 +19,10 @@ class SystemSettingsResponse(BaseModel):
     usd_cny_rate: float | None = None
     claude_input_usd_per_million: float | None = None
     claude_output_usd_per_million: float | None = None
+    # Linux DO OAuth
+    linuxdo_client_id: str | None = None
+    linuxdo_client_secret_set: bool = False
+    linuxdo_redirect_uri: str | None = None
 
 
 class SystemSettingsUpdate(BaseModel):
@@ -37,3 +41,7 @@ class SystemSettingsUpdate(BaseModel):
     usd_cny_rate: float | None = None
     claude_input_usd_per_million: float | None = None
     claude_output_usd_per_million: float | None = None
+    # Linux DO OAuth
+    linuxdo_client_id: str | None = None
+    linuxdo_client_secret: str | None = None
+    linuxdo_redirect_uri: str | None = None

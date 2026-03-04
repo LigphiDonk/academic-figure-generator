@@ -97,3 +97,20 @@ class SystemSettings(Base, TimestampMixin):
         default=Decimal("15.0000"),
         comment="Claude output price (USD per 1M tokens)",
     )
+
+    # Linux DO OAuth
+    linuxdo_client_id: Mapped[str | None] = mapped_column(
+        String(200),
+        nullable=True,
+        comment="Linux DO OAuth Client ID",
+    )
+    linuxdo_client_secret_enc: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="AES-256 encrypted Linux DO OAuth Client Secret",
+    )
+    linuxdo_redirect_uri: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        comment="Linux DO OAuth redirect URI",
+    )

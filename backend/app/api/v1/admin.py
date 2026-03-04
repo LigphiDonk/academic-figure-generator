@@ -64,6 +64,9 @@ def _settings_to_response(s: SystemSettings) -> SystemSettingsResponse:
         usd_cny_rate=float(s.usd_cny_rate),
         claude_input_usd_per_million=float(s.claude_input_usd_per_million),
         claude_output_usd_per_million=float(s.claude_output_usd_per_million),
+        linuxdo_client_id=s.linuxdo_client_id,
+        linuxdo_client_secret_set=s.linuxdo_client_secret_enc is not None,
+        linuxdo_redirect_uri=s.linuxdo_redirect_uri,
     )
 
 
@@ -121,6 +124,14 @@ async def update_system_settings(
             settings.nanobanana_api_key_enc = encrypt_api_key(raw_key)
         else:
             settings.nanobanana_api_key_enc = None
+
+    # Handle LinuxDO client secret encryption
+    if "linuxdo_client_secret" in updates:
+        raw_secret = updates.pop("linuxdo_client_secret")
+        if raw_secret:
+            settings.linuxdo_client_secret_enc = encrypt_api_key(raw_secret)
+        else:
+            settings.linuxdo_client_secret_enc = None
 
     # Apply remaining scalar updates (base URLs, model)
     for field, value in updates.items():

@@ -28,7 +28,7 @@ export function Layout() {
         ] : []),
     ];
 
-    const displayName = user?.display_name || user?.email || '';
+    const displayName = user?.linuxdo_username || user?.display_name || user?.email || '';
     const initials = displayName
         ? displayName.slice(0, 2).toUpperCase()
         : 'U';
@@ -91,11 +91,19 @@ export function Layout() {
                     {/* User Identity */}
                     <div className="flex items-center space-x-3 px-2 py-2 rounded-lg">
                         {/* Avatar */}
-                        <div className="w-7 h-7 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
-                            <span className="text-xs font-semibold text-primary leading-none">
-                                {initials}
-                            </span>
-                        </div>
+                        {user?.linuxdo_avatar_url ? (
+                            <img
+                                src={user.linuxdo_avatar_url}
+                                alt="avatar"
+                                className="w-7 h-7 rounded-full flex-shrink-0 object-cover"
+                            />
+                        ) : (
+                            <div className="w-7 h-7 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                                <span className="text-xs font-semibold text-primary leading-none">
+                                    {initials}
+                                </span>
+                            </div>
+                        )}
                         <span className="text-sm font-medium text-foreground truncate flex-1 min-w-0">
                             {displayName}
                         </span>

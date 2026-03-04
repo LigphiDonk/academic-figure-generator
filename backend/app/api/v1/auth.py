@@ -1,6 +1,10 @@
-"""Authentication endpoints: register, login, refresh, profile."""
+"""Authentication endpoints: register, login, refresh, profile, LinuxDO OAuth."""
 
-from fastapi import APIRouter, Depends
+import logging
+
+import httpx
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,12 +12,14 @@ from app.core.exceptions import BadRequestException, NotFoundException
 from app.core.security import (
     create_access_token,
     create_refresh_token,
+    decrypt_api_key,
     encrypt_api_key,
     hash_password,
     verify_password,
     verify_token,
 )
 from app.dependencies import get_current_active_user, get_db
+from app.models.system_settings import SystemSettings
 from app.models.user import User
 from app.schemas.auth import (
     TokenRefresh,
@@ -23,6 +29,8 @@ from app.schemas.auth import (
     UserResponse,
     UserUpdate,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -49,6 +57,9 @@ def _user_to_response(user: User) -> UserResponse:
         nanobanana_api_base_url=user.nanobanana_api_base_url,
         claude_tokens_quota=user.claude_tokens_quota,
         nanobanana_images_quota=user.nanobanana_images_quota,
+        linuxdo_id=user.linuxdo_id,
+        linuxdo_username=user.linuxdo_username,
+        linuxdo_avatar_url=user.linuxdo_avatar_url,
         created_at=user.created_at,
     )
 
@@ -95,7 +106,7 @@ async def login(
     result = await db.execute(select(User).where(User.email == data.email))
     user: User | None = result.scalar_one_or_none()
 
-    if user is None or not verify_password(data.password, user.password_hash):
+    if user is None or not user.password_hash or not verify_password(data.password, user.password_hash):
         raise BadRequestException("Invalid email or password")
 
     if not user.is_active:
@@ -175,3 +186,149 @@ async def update_me(
     await db.flush()
     await db.refresh(user)
     return _user_to_response(user)
+
+
+# ---------------------------------------------------------------------------
+# Linux DO OAuth Endpoints
+# ---------------------------------------------------------------------------
+
+LINUXDO_AUTHORIZE_URL = "https://connect.linux.do/oauth2/authorize"
+LINUXDO_TOKEN_URL = "https://connect.linux.do/oauth2/token"
+LINUXDO_USER_URL = "https://connect.linux.do/api/user"
+
+
+async def _get_linuxdo_settings(db: AsyncSession) -> SystemSettings | None:
+    """Return SystemSettings if LinuxDO OAuth is configured."""
+    result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
+    settings = result.scalar_one_or_none()
+    if settings and settings.linuxdo_client_id and settings.linuxdo_client_secret_enc:
+        return settings
+    return None
+
+
+@router.get("/linuxdo/status")
+async def linuxdo_status(db: AsyncSession = Depends(get_db)):
+    """Check if LinuxDO OAuth is configured (public, no auth required)."""
+    settings = await _get_linuxdo_settings(db)
+    return {"configured": settings is not None}
+
+
+@router.get("/linuxdo/authorize")
+async def linuxdo_authorize(db: AsyncSession = Depends(get_db)):
+    """Redirect user to LinuxDO OAuth authorization page."""
+    settings = await _get_linuxdo_settings(db)
+    if settings is None:
+        raise BadRequestException("LinuxDO OAuth 尚未配置")
+
+    redirect_uri = settings.linuxdo_redirect_uri or ""
+    authorize_url = (
+        f"{LINUXDO_AUTHORIZE_URL}"
+        f"?client_id={settings.linuxdo_client_id}"
+        f"&redirect_uri={redirect_uri}"
+        f"&response_type=code"
+    )
+    return RedirectResponse(url=authorize_url, status_code=302)
+
+
+@router.get("/linuxdo/callback")
+async def linuxdo_callback(
+    code: str = Query(..., description="OAuth authorization code"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Handle LinuxDO OAuth callback: exchange code for token, upsert user, redirect to frontend."""
+    settings = await _get_linuxdo_settings(db)
+    if settings is None:
+        raise BadRequestException("LinuxDO OAuth 尚未配置")
+
+    client_id = settings.linuxdo_client_id
+    client_secret = decrypt_api_key(settings.linuxdo_client_secret_enc)
+    redirect_uri = settings.linuxdo_redirect_uri or ""
+
+    # Step 1: Exchange authorization code for access token
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        token_resp = await client.post(
+            LINUXDO_TOKEN_URL,
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": redirect_uri,
+                "client_id": client_id,
+                "client_secret": client_secret,
+            },
+            headers={"Accept": "application/json"},
+        )
+
+    if token_resp.status_code != 200:
+        logger.error("LinuxDO token exchange failed: %s %s", token_resp.status_code, token_resp.text)
+        raise BadRequestException("LinuxDO 授权码交换失败")
+
+    token_data = token_resp.json()
+    oauth_access_token = token_data.get("access_token")
+    if not oauth_access_token:
+        raise BadRequestException("LinuxDO 返回的 token 无效")
+
+    # Step 2: Fetch user info from LinuxDO
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        user_resp = await client.get(
+            LINUXDO_USER_URL,
+            headers={
+                "Authorization": f"Bearer {oauth_access_token}",
+                "Accept": "application/json",
+            },
+        )
+
+    if user_resp.status_code != 200:
+        logger.error("LinuxDO user info fetch failed: %s %s", user_resp.status_code, user_resp.text)
+        raise BadRequestException("获取 LinuxDO 用户信息失败")
+
+    linuxdo_user = user_resp.json()
+    linuxdo_id = linuxdo_user.get("id")
+    linuxdo_username = linuxdo_user.get("username", "")
+    linuxdo_avatar_url = linuxdo_user.get("avatar_url", "")
+    linuxdo_trust_level = linuxdo_user.get("trust_level", 0)
+
+    if not linuxdo_id:
+        raise BadRequestException("LinuxDO 用户信息缺少 ID")
+
+    # Step 3: Find or create local user by linuxdo_id
+    result = await db.execute(select(User).where(User.linuxdo_id == linuxdo_id))
+    user: User | None = result.scalar_one_or_none()
+
+    if user is not None:
+        # Update existing user info
+        user.linuxdo_username = linuxdo_username
+        user.linuxdo_avatar_url = linuxdo_avatar_url
+        user.linuxdo_trust_level = linuxdo_trust_level
+        if not user.display_name:
+            user.display_name = linuxdo_username
+    else:
+        # Create new user (no password, email placeholder)
+        user = User(
+            email=f"{linuxdo_id}@linuxdo.local",
+            password_hash=None,
+            display_name=linuxdo_username,
+            linuxdo_id=linuxdo_id,
+            linuxdo_username=linuxdo_username,
+            linuxdo_avatar_url=linuxdo_avatar_url,
+            linuxdo_trust_level=linuxdo_trust_level,
+        )
+        db.add(user)
+
+    await db.flush()
+    await db.refresh(user)
+
+    if not user.is_active:
+        raise BadRequestException("账户已被禁用")
+
+    # Step 4: Generate JWT tokens
+    access, refresh = _build_tokens(user.id)
+
+    # Step 5: Redirect to frontend callback page with tokens
+    # Derive frontend origin from redirect_uri (strip /api/v1/auth/linuxdo/callback)
+    frontend_origin = redirect_uri.replace("/api/v1/auth/linuxdo/callback", "")
+    frontend_callback = (
+        f"{frontend_origin}/auth/linuxdo/callback"
+        f"?access_token={access}"
+        f"&refresh_token={refresh}"
+    )
+    return RedirectResponse(url=frontend_callback, status_code=302)

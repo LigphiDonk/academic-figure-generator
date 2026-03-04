@@ -16,6 +16,9 @@ export interface User {
     nanobanana_api_base_url?: string | null;
     claude_tokens_quota?: number;
     nanobanana_images_quota?: number;
+    linuxdo_id?: number | null;
+    linuxdo_username?: string | null;
+    linuxdo_avatar_url?: string | null;
     created_at?: string;
 }
 

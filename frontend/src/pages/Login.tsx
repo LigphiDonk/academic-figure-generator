@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { api } from '../lib/api';
 import { Button } from '../components/ui/button';
@@ -12,8 +12,16 @@ export function Login() {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [oauthConfigured, setOauthConfigured] = useState<boolean | null>(null);
     const setAuth = useAuthStore((state) => state.setAuth);
     const navigate = useNavigate();
+
+    // Check if LinuxDO OAuth is configured
+    useEffect(() => {
+        api.get('/auth/linuxdo/status')
+            .then((res) => setOauthConfigured(res.data.configured))
+            .catch(() => setOauthConfigured(false));
+    }, []);
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -35,6 +43,10 @@ export function Login() {
         } finally {
             setIsLoading(false);
         }
+    };
+
+    const handleLinuxDOLogin = () => {
+        window.location.href = '/api/v1/auth/linuxdo/authorize';
     };
 
     return (
@@ -119,7 +131,7 @@ export function Login() {
                             欢迎回来
                         </h1>
                         <p className="text-sm text-gray-500">
-                            请输入您的账号信息以继续
+                            {oauthConfigured ? '使用 Linux DO 账号登录' : '请输入您的账号信息以继续'}
                         </p>
                     </div>
 
@@ -132,90 +144,115 @@ export function Login() {
                         </div>
                     )}
 
-                    {/* Form */}
-                    <form onSubmit={handleLogin} className="space-y-5">
-                        <div className="space-y-1.5">
-                            <Label
-                                htmlFor="email"
-                                className="text-sm font-medium text-gray-700"
+                    {/* Loading state while checking OAuth config */}
+                    {oauthConfigured === null && (
+                        <div className="flex items-center justify-center py-12">
+                            <svg
+                                className="animate-spin h-6 w-6 text-gray-400"
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
                             >
-                                邮箱地址
-                            </Label>
-                            <Input
-                                id="email"
-                                type="email"
-                                placeholder="you@example.com"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                required
-                                className="h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:bg-white focus:border-gray-400 focus:ring-0 transition-colors duration-200"
-                            />
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                            </svg>
                         </div>
+                    )}
 
-                        <div className="space-y-1.5">
-                            <Label
-                                htmlFor="password"
-                                className="text-sm font-medium text-gray-700"
+                    {/* OAuth configured: show Linux DO login button */}
+                    {oauthConfigured === true && (
+                        <div className="space-y-5">
+                            <Button
+                                onClick={handleLinuxDOLogin}
+                                className="w-full h-12 rounded-xl text-sm font-semibold tracking-wide transition-all duration-200 flex items-center justify-center gap-3"
+                                style={{
+                                    background: '#111827',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                }}
                             >
-                                密码
-                            </Label>
-                            <Input
-                                id="password"
-                                type="password"
-                                placeholder="••••••••"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                required
-                                className="h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:bg-white focus:border-gray-400 focus:ring-0 transition-colors duration-200"
-                            />
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" fill="currentColor"/>
+                                </svg>
+                                使用 Linux DO 登录
+                            </Button>
                         </div>
+                    )}
 
-                        <Button
-                            type="submit"
-                            disabled={isLoading}
-                            className="w-full h-11 rounded-xl text-sm font-semibold tracking-wide transition-all duration-200"
-                            style={{
-                                background: isLoading ? '#374151' : '#111827',
-                                color: '#ffffff',
-                                border: 'none',
-                            }}
-                        >
-                            {isLoading ? (
-                                <span className="flex items-center justify-center gap-2">
-                                    <svg
-                                        className="animate-spin h-4 w-4 text-white"
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
+                    {/* OAuth NOT configured: show email/password form for admin bootstrap */}
+                    {oauthConfigured === false && (
+                        <>
+                            <form onSubmit={handleLogin} className="space-y-5">
+                                <div className="space-y-1.5">
+                                    <Label
+                                        htmlFor="email"
+                                        className="text-sm font-medium text-gray-700"
                                     >
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                                    </svg>
-                                    登录中...
-                                </span>
-                            ) : (
-                                '登 录'
-                            )}
-                        </Button>
-                    </form>
+                                        邮箱地址
+                                    </Label>
+                                    <Input
+                                        id="email"
+                                        type="email"
+                                        placeholder="you@example.com"
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
+                                        required
+                                        className="h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:bg-white focus:border-gray-400 focus:ring-0 transition-colors duration-200"
+                                    />
+                                </div>
 
-                    {/* Divider */}
-                    <div className="my-6 flex items-center gap-3">
-                        <div className="flex-1 h-px bg-gray-100" />
-                        <span className="text-xs text-gray-400">或</span>
-                        <div className="flex-1 h-px bg-gray-100" />
-                    </div>
+                                <div className="space-y-1.5">
+                                    <Label
+                                        htmlFor="password"
+                                        className="text-sm font-medium text-gray-700"
+                                    >
+                                        密码
+                                    </Label>
+                                    <Input
+                                        id="password"
+                                        type="password"
+                                        placeholder="••••••••"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        required
+                                        className="h-11 px-4 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder:text-gray-400 focus:bg-white focus:border-gray-400 focus:ring-0 transition-colors duration-200"
+                                    />
+                                </div>
 
-                    {/* Register link */}
-                    <p className="text-center text-sm text-gray-500">
-                        还没有账号？{' '}
-                        <Link
-                            to="/register"
-                            className="font-semibold text-gray-900 hover:text-gray-600 transition-colors duration-150 underline underline-offset-2 decoration-gray-300 hover:decoration-gray-500"
-                        >
-                            立即注册
-                        </Link>
-                    </p>
+                                <Button
+                                    type="submit"
+                                    disabled={isLoading}
+                                    className="w-full h-11 rounded-xl text-sm font-semibold tracking-wide transition-all duration-200"
+                                    style={{
+                                        background: isLoading ? '#374151' : '#111827',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                    }}
+                                >
+                                    {isLoading ? (
+                                        <span className="flex items-center justify-center gap-2">
+                                            <svg
+                                                className="animate-spin h-4 w-4 text-white"
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                fill="none"
+                                                viewBox="0 0 24 24"
+                                            >
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                                            </svg>
+                                            登录中...
+                                        </span>
+                                    ) : (
+                                        '管理员登录'
+                                    )}
+                                </Button>
+                            </form>
+
+                            <p className="mt-6 text-center text-xs text-gray-400">
+                                管理员首次登录后，请在系统管理中配置 Linux DO OAuth
+                            </p>
+                        </>
+                    )}
                 </div>
             </div>
         </div>

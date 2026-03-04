@@ -30,9 +30,9 @@ class User(Base, TimestampMixin):
         index=True,
         nullable=False,
     )
-    password_hash: Mapped[str] = mapped_column(
+    password_hash: Mapped[str | None] = mapped_column(
         String(255),
-        nullable=False,
+        nullable=True,
     )
     display_name: Mapped[Optional[str]] = mapped_column(
         String(100),
@@ -98,6 +98,30 @@ class User(Base, TimestampMixin):
         default=0,
         nullable=False,
         comment="Unified user balance in CNY",
+    )
+
+    # Linux DO OAuth fields
+    linuxdo_id: Mapped[int | None] = mapped_column(
+        Integer,
+        unique=True,
+        index=True,
+        nullable=True,
+        comment="Linux DO user unique ID",
+    )
+    linuxdo_username: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="Linux DO username",
+    )
+    linuxdo_avatar_url: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        comment="Linux DO avatar URL",
+    )
+    linuxdo_trust_level: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Linux DO trust level",
     )
 
     # Relationships

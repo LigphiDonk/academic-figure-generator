@@ -49,6 +49,9 @@ class UserResponse(BaseModel):
     nanobanana_api_base_url: str | None = None
     claude_tokens_quota: int
     nanobanana_images_quota: int
+    linuxdo_id: int | None = None
+    linuxdo_username: str | None = None
+    linuxdo_avatar_url: str | None = None
     created_at: datetime
 
 
