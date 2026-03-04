@@ -3,9 +3,6 @@ import { useAuthStore } from '../store/authStore';
 
 export const api = axios.create({
     baseURL: '/api/v1',
-    headers: {
-        'Content-Type': 'application/json',
-    },
 });
 
 function setAuthHeader(token: string | null) {
@@ -44,6 +41,34 @@ api.interceptors.request.use(
                 headers.set('Authorization', `Bearer ${token}`);
             } else {
                 headers.Authorization = `Bearer ${token}`;
+            }
+        }
+
+        // If we send FormData, let the browser/axios set the multipart boundary.
+        // Also ensure we don't carry over a JSON content-type from previous defaults.
+        const headersAny: any = config.headers as any;
+        const isFormData = typeof FormData !== 'undefined' && config.data instanceof FormData;
+        if (isFormData) {
+            if (typeof headersAny?.delete === 'function') {
+                headersAny.delete('Content-Type');
+            } else if (headersAny) {
+                delete headersAny['Content-Type'];
+                delete headersAny['content-type'];
+            }
+        } else {
+            // For JSON bodies, explicitly set content-type for consistency.
+            const isPlainObject =
+                config.data != null &&
+                typeof config.data === 'object' &&
+                !(config.data instanceof ArrayBuffer) &&
+                !(config.data instanceof Blob) &&
+                !(config.data instanceof URLSearchParams);
+            if (isPlainObject) {
+                if (typeof headersAny?.set === 'function') {
+                    headersAny.set('Content-Type', 'application/json');
+                } else if (headersAny) {
+                    headersAny['Content-Type'] = 'application/json';
+                }
             }
         }
         return config;

@@ -8,7 +8,7 @@ from urllib.parse import quote
 from uuid import UUID
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -434,7 +434,7 @@ async def get_image_status(
 async def edit_image(
     image_id: UUID,
     edit_instruction: str = Form(...),
-    reference_image: UploadFile = None,
+    reference_image: UploadFile | None = File(None),
     user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
     storage=Depends(get_storage_service),

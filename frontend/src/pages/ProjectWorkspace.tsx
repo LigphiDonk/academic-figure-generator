@@ -446,9 +446,7 @@ export function ProjectWorkspace() {
         try {
             const formData = new FormData();
             formData.append('edit_instruction', instruction);
-            await api.post(`/images/${imageId}/edit`, formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-            });
+            await api.post(`/images/${imageId}/edit`, formData);
             setEditInstructions(prev => ({ ...prev, [imageId]: '' }));
             await fetchProjectData(id, { showLoader: false });
         } catch (err: any) {
