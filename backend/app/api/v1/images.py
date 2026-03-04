@@ -18,6 +18,7 @@ from app.config import get_settings
 from app.core.exceptions import (
     BadRequestException,
     ForbiddenException,
+    InsufficientBalanceException,
     NotFoundException,
 )
 from app.dependencies import get_current_active_user, get_db, get_storage_service
@@ -29,6 +30,7 @@ from app.models.user import User
 from app.schemas.image import (
     ImageDirectGenerateRequest,
     ImageGenerateRequest,
+    ImagePricingResponse,
     ImageResponse,
     ImageStatusResponse,
 )
@@ -167,6 +169,30 @@ async def _get_image_price_cny_for_resolution(db: AsyncSession, resolution: str)
 # Endpoints
 # ---------------------------------------------------------------------------
 
+@router.get("/images/pricing", response_model=ImagePricingResponse)
+async def get_image_pricing(
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return current per-resolution image prices (CNY) for user display."""
+    _ = user  # ensure auth; no per-user pricing yet
+
+    s = (
+        await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
+    ).scalar_one_or_none()
+
+    fallback = Decimal(str(s.image_price_cny if s and s.image_price_cny is not None else "1.5"))
+    p1 = Decimal(str(getattr(s, "image_price_cny_1k", None) or fallback)) if s else fallback
+    p2 = Decimal(str(getattr(s, "image_price_cny_2k", None) or fallback)) if s else fallback
+    p4 = Decimal(str(getattr(s, "image_price_cny_4k", None) or fallback)) if s else fallback
+
+    return ImagePricingResponse(
+        price_cny_default=float(fallback),
+        price_cny_1k=float(p1),
+        price_cny_2k=float(p2),
+        price_cny_4k=float(p4),
+    )
+
 
 @router.post(
     "/prompts/{prompt_id}/images/generate",
@@ -188,7 +214,7 @@ async def generate_image_from_prompt(
 
     image_price_cny = await _get_image_price_cny_for_resolution(db, data.resolution)
     if Decimal(str(user.balance_cny)) < image_price_cny:
-        raise BadRequestException(
+        raise InsufficientBalanceException(
             f"余额不足：当前余额 ¥{float(user.balance_cny):.2f}，"
             f"生成 1 张图片需要 ¥{float(image_price_cny):.2f}。"
         )
@@ -256,7 +282,7 @@ async def generate_image_direct(
 
     image_price_cny = await _get_image_price_cny_for_resolution(db, data.resolution)
     if Decimal(str(user.balance_cny)) < image_price_cny:
-        raise BadRequestException(
+        raise InsufficientBalanceException(
             f"余额不足：当前余额 ¥{float(user.balance_cny):.2f}，"
             f"生成 1 张图片需要 ¥{float(image_price_cny):.2f}。"
         )

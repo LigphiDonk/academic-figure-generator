@@ -52,3 +52,11 @@ class ImageStatusResponse(BaseModel):
     generation_status: str
     generation_task_id: str | None
     generation_error: str | None = None
+
+
+class ImagePricingResponse(BaseModel):
+    currency: str = "CNY"
+    price_cny_default: float
+    price_cny_1k: float
+    price_cny_2k: float
+    price_cny_4k: float

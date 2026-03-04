@@ -38,6 +38,14 @@ type PromptSettings = {
     colorScheme: string;
 };
 
+type ImagePricing = {
+    currency: string;
+    price_cny_default: number;
+    price_cny_1k: number;
+    price_cny_2k: number;
+    price_cny_4k: number;
+};
+
 export function ProjectWorkspace() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
@@ -63,6 +71,7 @@ export function ProjectWorkspace() {
     const previewUrlsRef = useRef<Record<string, string>>({});
     const [promptMode, setPromptMode] = useState<'overall' | 'sections'>('overall');
     const [promptRequest, setPromptRequest] = useState('');
+    const [templateMode, setTemplateMode] = useState(false);
     const [selectedSectionIndices, setSelectedSectionIndices] = useState<number[]>([]);
     const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
     const [showStructure, setShowStructure] = useState(true);
@@ -146,6 +155,16 @@ export function ProjectWorkspace() {
     const [editInstructions, setEditInstructions] = useState<Record<string, string>>({});
     const [isEditing, setIsEditing] = useState<Record<string, boolean>>({});
     const [promptSettings, setPromptSettings] = useState<Record<string, PromptSettings>>({});
+    const [imagePricing, setImagePricing] = useState<ImagePricing | null>(null);
+
+    const getImagePriceCny = (resolution: string): number | null => {
+        if (!imagePricing) return null;
+        const r = (resolution || '').trim().toUpperCase();
+        if (r === '1K') return imagePricing.price_cny_1k ?? imagePricing.price_cny_default;
+        if (r === '4K') return imagePricing.price_cny_4k ?? imagePricing.price_cny_default;
+        if (r === '2K') return imagePricing.price_cny_2k ?? imagePricing.price_cny_default;
+        return imagePricing.price_cny_default;
+    };
 
     const getSettings = (promptId: string): PromptSettings => {
         if (promptSettings[promptId]) return promptSettings[promptId];
@@ -249,6 +268,14 @@ export function ProjectWorkspace() {
                 console.debug('Failed to fetch color schemes', e);
             }
 
+            try {
+                const pricingRes = await api.get('/images/pricing');
+                setImagePricing(pricingRes.data || null);
+            } catch (e) {
+                console.debug('Failed to fetch image pricing', e);
+                setImagePricing(null);
+            }
+
         } catch (err) {
             console.error(err);
             navigate('/projects');
@@ -345,8 +372,9 @@ export function ProjectWorkspace() {
                 section_indices: selectedSectionIndices.length ? selectedSectionIndices : null,
                 color_scheme: currentProject?.color_scheme || 'okabe-ito',
                 figure_types: promptMode === 'overall' ? ['overall_framework'] : null,
-                user_request: promptRequest.trim() ? promptRequest.trim() : null,
+                user_request: templateMode ? null : (promptRequest.trim() ? promptRequest.trim() : null),
                 max_figures: promptMode === 'overall' ? 1 : null,
+                template_mode: templateMode,
             };
 
             await api.post(`/projects/${id}/prompts/generate`, payload);
@@ -397,9 +425,15 @@ export function ProjectWorkspace() {
                 color_scheme: settings.colorScheme,
             });
             await fetchProjectData(id, { showLoader: false });
-        } catch (err) {
+        } catch (err: any) {
             console.error('Failed to generate image', err);
-            alert('生成图像失败，请稍后重试。');
+            const code = err?.response?.data?.error;
+            const detail = err?.response?.data?.detail;
+            if (code === 'INSUFFICIENT_BALANCE') {
+                alert(detail || '余额不足，无法生成图片。');
+                return;
+            }
+            alert(detail ? `生成图片失败：${detail}` : '生成图片失败，请稍后重试。');
         }
     };
 
@@ -633,7 +667,14 @@ export function ProjectWorkspace() {
                     </CardHeader>
                     <CardContent className="flex-1 overflow-hidden p-0 flex flex-col">
                         <div className="px-4 py-3 border-b bg-background">
-                            <div className="text-xs text-muted-foreground">用于限定提示词生成范围（按章节折叠选择）。</div>
+                            <div className="text-xs text-muted-foreground">
+                                用于限定提示词生成范围（按章节折叠选择）。
+                                {imagePricing && (
+                                    <span className="ml-2">
+                                        当前价格：1K ¥{imagePricing.price_cny_1k.toFixed(2)}/张 · 2K ¥{imagePricing.price_cny_2k.toFixed(2)}/张 · 4K ¥{imagePricing.price_cny_4k.toFixed(2)}/张
+                                    </span>
+                                )}
+                            </div>
                         </div>
                         <ScrollArea className="flex-1 p-4">
                             {renderParsedStructure()}
@@ -683,6 +724,7 @@ export function ProjectWorkspace() {
                                 onChange={(e) => setPromptRequest(e.target.value)}
                                 placeholder="例如：只生成一张整体架构图（包含输入、编码器、融合模块、输出），突出本文主要贡献点。"
                                 className="min-h-[70px]"
+                                disabled={templateMode}
                             />
                             <div className="flex items-center justify-between gap-2 mt-3">
                                 <div className="text-sm font-medium text-muted-foreground">生成方式</div>
@@ -696,6 +738,20 @@ export function ProjectWorkspace() {
                                     </SelectContent>
                                 </Select>
                             </div>
+                            <label className="flex items-center gap-2 mt-3 cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={templateMode}
+                                    onChange={(e) => setTemplateMode(e.target.checked)}
+                                    className="w-4 h-4 accent-primary"
+                                />
+                                <span className="text-sm font-medium">只画底图（无文字）</span>
+                            </label>
+                            {templateMode && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    生成纯结构底图，所有方块、箭头均无文字标注，方便自行填写内容。
+                                </p>
+                            )}
                             <p className="text-xs text-muted-foreground mt-2">
                                 章节勾选对两种方式都生效（用于限定参考范围）。
                             </p>
@@ -915,6 +971,11 @@ export function ProjectWorkspace() {
                                                                 ))}
                                                             </SelectContent>
                                                         </Select>
+                                                        {getImagePriceCny(settings.resolution) != null && (
+                                                            <div className="text-[11px] text-muted-foreground mt-1">
+                                                                价格：¥{getImagePriceCny(settings.resolution)!.toFixed(2)}/张
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </CardContent>

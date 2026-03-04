@@ -47,7 +47,7 @@ from sqlalchemy.orm import Session
 from app.core.billing import compute_claude_cost_usd, usd_to_cny
 from app.core.prompts.color_schemes import PRESET_COLOR_SCHEMES, OKABE_ITO
 from app.core.prompts.figure_types import FIGURE_TYPES
-from app.core.prompts.system_prompt import ACADEMIC_FIGURE_SYSTEM_PROMPT
+from app.core.prompts.system_prompt import ACADEMIC_FIGURE_SYSTEM_PROMPT, TEMPLATE_FIGURE_SYSTEM_PROMPT
 from app.core.security import decrypt_api_key
 from app.tasks.celery_app import celery_app
 from app.tasks.db import _get_session
@@ -119,6 +119,45 @@ def _build_user_prompt(
     )
 
 
+def _build_template_user_prompt(
+    color_scheme: dict[str, str],
+    figure_types: list[str] | None,
+    max_figures: int | None,
+) -> str:
+    """Construct the user message for template (text-free) mode."""
+    color_block = json.dumps(color_scheme, indent=2)
+
+    count_hint = ""
+    if max_figures is not None and max_figures > 0:
+        count_hint = f"Generate exactly {max_figures} template figure(s). "
+    else:
+        count_hint = "Generate 1 template figure. "
+
+    type_hint = ""
+    if figure_types:
+        type_descriptions = [
+            f"- {ft}: {FIGURE_TYPES[ft]['description']}"
+            for ft in figure_types
+            if ft in FIGURE_TYPES
+        ]
+        if type_descriptions:
+            type_hint = (
+                "\n\nUse these figure types:\n"
+                + "\n".join(type_descriptions)
+            )
+
+    return (
+        f"Color palette to use (map exactly to the roles described in the system prompt):\n"
+        f"```json\n{color_block}\n```"
+        f"{type_hint}\n\n"
+        f"{count_hint}"
+        f"Generate purely structural, text-free layout template(s). "
+        f"Do NOT include any text, labels, annotations, numbers, or symbols of any kind. "
+        f"Every element must be a shape, line, or arrow only. "
+        f"Return ONLY valid JSON array as specified in the system prompt."
+    )
+
+
 def _call_claude_api(
     user_prompt: str,
     api_key: str,
@@ -126,6 +165,7 @@ def _call_claude_api(
     model: str,
     max_tokens: int,
     timeout: float = 210.0,
+    system_prompt: str = ACADEMIC_FIGURE_SYSTEM_PROMPT,
 ) -> tuple[str, int, int, int, int]:
     """
     Synchronously call the Claude Messages API.
@@ -142,7 +182,7 @@ def _call_claude_api(
     payload = {
         "model": model,
         "max_tokens": max_tokens,
-        "system": ACADEMIC_FIGURE_SYSTEM_PROMPT,
+        "system": system_prompt,
         "messages": [{"role": "user", "content": user_prompt}],
     }
 
@@ -473,6 +513,7 @@ def generate_prompts_task(
     section_indices: list[int] | None = None,
     user_request: str | None = None,
     max_figures: int | None = None,
+    template_mode: bool = False,
 ) -> dict[str, Any]:
     """
     Generate AI figure prompts from an uploaded academic document.
@@ -595,19 +636,29 @@ def generate_prompts_task(
         # ------------------------------------------------------------------
         # 5. Build and send Claude API request
         # ------------------------------------------------------------------
-        user_prompt = _build_user_prompt(
-            sections=sections,
-            color_scheme=base_colors,
-            figure_types=figure_types,
-            user_request=user_request,
-            max_figures=max_figures,
-        )
+        if template_mode:
+            user_prompt = _build_template_user_prompt(
+                color_scheme=base_colors,
+                figure_types=figure_types,
+                max_figures=max_figures,
+            )
+            active_system_prompt = TEMPLATE_FIGURE_SYSTEM_PROMPT
+        else:
+            user_prompt = _build_user_prompt(
+                sections=sections,
+                color_scheme=base_colors,
+                figure_types=figure_types,
+                user_request=user_request,
+                max_figures=max_figures,
+            )
+            active_system_prompt = ACADEMIC_FIGURE_SYSTEM_PROMPT
 
         logger.info(
-            "Calling Claude API | url=%s model=%s max_tokens=%d",
+            "Calling Claude API | url=%s model=%s max_tokens=%d template_mode=%s",
             effective_api_url,
             effective_model,
             effective_max_tokens,
+            template_mode,
         )
         raw_text, input_tokens, output_tokens, status_code, duration_ms = _call_claude_api(
             user_prompt=user_prompt,
@@ -615,6 +666,7 @@ def generate_prompts_task(
             api_url=effective_api_url,
             model=effective_model,
             max_tokens=effective_max_tokens,
+            system_prompt=active_system_prompt,
         )
 
         estimated_cost_usd = compute_claude_cost_usd(

@@ -11,6 +11,7 @@ class PromptGenerateRequest(BaseModel):
     figure_types: list[str] | None = None
     user_request: str | None = None
     max_figures: int | None = None
+    template_mode: bool = False  # Generate text-free structural templates only
 
 
 class PromptResponse(BaseModel):

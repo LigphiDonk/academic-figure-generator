@@ -43,6 +43,11 @@ class BadRequestException(AppException):
         super().__init__(status_code=400, detail=detail, error_code="BAD_REQUEST")
 
 
+class InsufficientBalanceException(AppException):
+    def __init__(self, detail: str = "Insufficient balance") -> None:
+        super().__init__(status_code=400, detail=detail, error_code="INSUFFICIENT_BALANCE")
+
+
 class RateLimitException(AppException):
     def __init__(self, detail: str = "Rate limit exceeded") -> None:
         super().__init__(status_code=429, detail=detail, error_code="RATE_LIMIT_EXCEEDED")

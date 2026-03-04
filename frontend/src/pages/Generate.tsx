@@ -8,6 +8,14 @@ import { useAuthStore } from '../store/authStore';
 import { api } from '../lib/api';
 import { fetchAuthedBlob } from '../lib/blob';
 
+type ImagePricing = {
+   currency: string;
+   price_cny_default: number;
+   price_cny_1k: number;
+   price_cny_2k: number;
+   price_cny_4k: number;
+};
+
 export function Generate() {
    const { user } = useAuthStore();
    const [prompt, setPrompt] = useState('');
@@ -17,6 +25,7 @@ export function Generate() {
    const [resultImage, setResultImage] = useState<{ url: string; filename: string; status: 'pending' | 'completed' | 'failed' } | null>(null);
    const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
    const blobUrlRef = useRef<string | null>(null);
+   const [imagePricing, setImagePricing] = useState<ImagePricing | null>(null);
 
    useEffect(() => {
       return () => {
@@ -25,6 +34,21 @@ export function Generate() {
             blobUrlRef.current = null;
          }
       };
+   }, []);
+
+   useEffect(() => {
+      let mounted = true;
+      (async () => {
+         try {
+            const res = await api.get('/images/pricing');
+            if (!mounted) return;
+            setImagePricing(res.data || null);
+         } catch {
+            if (!mounted) return;
+            setImagePricing(null);
+         }
+      })();
+      return () => { mounted = false; };
    }, []);
 
    const stopPolling = useCallback(() => {
@@ -83,7 +107,13 @@ export function Generate() {
          pollTimerRef.current = setTimeout(() => pollStatus(imageId), 3000);
       } catch (e: any) {
          console.error(e);
-         setError(e.response?.data?.detail || '请求失败，请检查网络连接');
+         const code = e.response?.data?.error;
+         const detail = e.response?.data?.detail;
+         if (code === 'INSUFFICIENT_BALANCE') {
+            setError(detail || '余额不足，无法生成图片。');
+         } else {
+            setError(detail || '请求失败，请检查网络连接');
+         }
          setResultImage(null);
          setIsGenerating(false);
       }
@@ -118,7 +148,12 @@ export function Generate() {
                         onChange={e => setPrompt(e.target.value)}
                      />
                   </CardContent>
-                  <CardFooter className="flex justify-between border-t p-4">
+                  <CardFooter className="flex items-center justify-between gap-3 flex-wrap border-t p-4">
+                     {imagePricing && (
+                        <div className="text-xs text-muted-foreground">
+                           当前价格（2K）：¥{imagePricing.price_cny_2k.toFixed(2)}/张
+                        </div>
+                     )}
                      <Select value={aspectRatio} onValueChange={setAspectRatio}>
                         <SelectTrigger className="w-[120px]">
                            <SelectValue />
