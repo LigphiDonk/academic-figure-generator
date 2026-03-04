@@ -381,7 +381,7 @@ export function AdminSettings() {
                         <Label htmlFor="sys_nb_url">NanoBanana API 请求地址</Label>
                         <Input
                             id="sys_nb_url"
-                            placeholder="https://api.ikuncode.cc （留空使用默认地址）"
+                            placeholder="https://api.keepgo.icu （留空使用默认地址）"
                             value={formData.nanobanana_api_base_url}
                             onChange={e => setFormData({ ...formData, nanobanana_api_base_url: e.target.value })}
                         />

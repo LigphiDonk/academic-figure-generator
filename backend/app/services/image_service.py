@@ -1,4 +1,4 @@
-"""NanoBanana (api.ikuncode.cc) image generation service."""
+"""NanoBanana (api.keepgo.icu) image generation service."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class ImageService:
     """Integration with NanoBanana API for image generation.
 
-    The API at ``api.ikuncode.cc`` follows the OpenAI-compatible image
+    The API at ``api.keepgo.icu`` follows the OpenAI-compatible image
     generation format.
     """
 

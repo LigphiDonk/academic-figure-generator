@@ -61,7 +61,7 @@ class Settings(BaseSettings):
 
     # NanoBanana API
     NANOBANANA_API_KEY: str = ""
-    NANOBANANA_API_BASE: str = "https://api.ikuncode.cc"
+    NANOBANANA_API_BASE: str = "https://api.keepgo.icu"
 
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]

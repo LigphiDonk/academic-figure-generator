@@ -8,10 +8,17 @@
       "status": "completed",
       "completed_at": "2026-03-04T03:05:59.696Z",
       "duration_ms": 149200
+    },
+    {
+      "agent_id": "a9b2480061cd1438c",
+      "agent_type": "oh-my-claudecode:explore",
+      "started_at": "2026-03-04T03:53:02.750Z",
+      "parent_mode": "none",
+      "status": "running"
     }
   ],
-  "total_spawned": 1,
+  "total_spawned": 2,
   "total_completed": 1,
   "total_failed": 0,
-  "last_updated": "2026-03-04T03:37:36.466Z"
+  "last_updated": "2026-03-04T03:53:02.751Z"
 }

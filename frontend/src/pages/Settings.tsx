@@ -242,7 +242,7 @@ export function Settings() {
                             <Label htmlFor="nb_url">请求地址</Label>
                             <Input
                                 id="nb_url"
-                                placeholder="https://api.ikuncode.cc （留空使用系统默认）"
+                                placeholder="https://api.keepgo.icu （留空使用系统默认）"
                                 value={formData.nanobanana_api_base_url}
                                 onChange={e => setFormData({ ...formData, nanobanana_api_base_url: e.target.value })}
                             />

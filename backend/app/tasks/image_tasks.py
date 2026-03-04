@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 NANOBANANA_API_BASE: str = os.environ.get(
-    "NANOBANANA_API_BASE", "https://api.ikuncode.cc"
+    "NANOBANANA_API_BASE", "https://api.keepgo.icu"
 )
 NANOBANANA_API_KEY: str = os.environ.get("NANOBANANA_API_KEY", "")
 NANOBANANA_MODEL: str = os.environ.get("NANOBANANA_MODEL", "gemini-3-pro-image-preview")
