@@ -5,7 +5,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
-import { RefreshCw, CheckCircle2, Shield, Server, Globe } from 'lucide-react';
+import { RefreshCw, CheckCircle2, Shield, Server, Globe, Coins } from 'lucide-react';
 
 interface SystemSettings {
     claude_api_key_set: boolean;
@@ -24,6 +24,9 @@ interface SystemSettings {
     linuxdo_client_id: string | null;
     linuxdo_client_secret_set: boolean;
     linuxdo_redirect_uri: string | null;
+    epay_pid: string | null;
+    epay_key_set: boolean;
+    linuxdo_credits_per_cny: number | null;
 }
 
 export function AdminSettings() {
@@ -49,6 +52,9 @@ export function AdminSettings() {
         linuxdo_client_id: null,
         linuxdo_client_secret_set: false,
         linuxdo_redirect_uri: null,
+        epay_pid: null,
+        epay_key_set: false,
+        linuxdo_credits_per_cny: null,
     });
 
     const [formData, setFormData] = useState({
@@ -68,6 +74,9 @@ export function AdminSettings() {
         linuxdo_client_id: '',
         linuxdo_client_secret: '',
         linuxdo_redirect_uri: '',
+        epay_pid: '',
+        epay_key: '',
+        linuxdo_credits_per_cny: '',
     });
 
     useEffect(() => {
@@ -95,6 +104,8 @@ export function AdminSettings() {
                 claude_output_usd_per_million: data.claude_output_usd_per_million != null ? String(data.claude_output_usd_per_million) : '',
                 linuxdo_client_id: data.linuxdo_client_id || '',
                 linuxdo_redirect_uri: data.linuxdo_redirect_uri || '',
+                epay_pid: data.epay_pid || '',
+                linuxdo_credits_per_cny: data.linuxdo_credits_per_cny != null ? String(data.linuxdo_credits_per_cny) : '',
             }));
         } catch (e) {
             console.error('Failed to fetch system settings:', e);
@@ -123,6 +134,11 @@ export function AdminSettings() {
             if (formData.linuxdo_client_secret) payload.linuxdo_client_secret = formData.linuxdo_client_secret;
             payload.linuxdo_redirect_uri = formData.linuxdo_redirect_uri || null;
 
+            // EasyPay (Linux DO Credits)
+            payload.epay_pid = formData.epay_pid || null;
+            if (formData.epay_key) payload.epay_key = formData.epay_key;
+            if (formData.linuxdo_credits_per_cny !== '') payload.linuxdo_credits_per_cny = parseFloat(formData.linuxdo_credits_per_cny);
+
             if (formData.image_price_cny !== '') payload.image_price_cny = parseFloat(formData.image_price_cny);
             if (formData.image_price_cny_1k !== '') payload.image_price_cny_1k = parseFloat(formData.image_price_cny_1k);
             if (formData.image_price_cny_2k !== '') payload.image_price_cny_2k = parseFloat(formData.image_price_cny_2k);
@@ -136,7 +152,7 @@ export function AdminSettings() {
             setSuccess('系统设置保存成功！');
 
             // Clear key fields after save
-            setFormData(prev => ({ ...prev, claude_api_key: '', nanobanana_api_key: '', linuxdo_client_secret: '' }));
+            setFormData(prev => ({ ...prev, claude_api_key: '', nanobanana_api_key: '', linuxdo_client_secret: '', epay_key: '' }));
         } catch (e) {
             console.error(e);
             alert('保存系统设置失败，请重试');
@@ -227,6 +243,64 @@ export function AdminSettings() {
                     <Button onClick={handleSave} disabled={isLoading}>
                         {isLoading && <RefreshCw className="w-4 h-4 mr-2 animate-spin" />}
                         保存 OAuth 配置
+                    </Button>
+                </CardFooter>
+            </Card>
+
+            {/* Linux DO Credits Payment (EasyPay) */}
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <Coins className="w-5 h-5" />
+                        Linux DO 积分支付
+                    </CardTitle>
+                    <CardDescription>配置 EasyPay 积分支付，让用户可以使用 Linux DO 积分自助充值余额。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="epay_pid">EasyPay PID</Label>
+                        <Input
+                            id="epay_pid"
+                            placeholder="输入 EasyPay 商户 PID"
+                            value={formData.epay_pid}
+                            onChange={e => setFormData({ ...formData, epay_pid: e.target.value })}
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                            <Label htmlFor="epay_key">EasyPay Key</Label>
+                            {settings.epay_key_set && (
+                                <span className="flex items-center text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full"><CheckCircle2 className="w-3 h-3 mr-1" /> 已配置</span>
+                            )}
+                        </div>
+                        <Input
+                            id="epay_key"
+                            type="password"
+                            placeholder={settings.epay_key_set ? "****** (已设置，留空保持不变)" : "输入 EasyPay Key"}
+                            value={formData.epay_key}
+                            onChange={e => setFormData({ ...formData, epay_key: e.target.value })}
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="linuxdo_credits_per_cny">积分兑换比率</Label>
+                        <Input
+                            id="linuxdo_credits_per_cny"
+                            type="number"
+                            step="0.0001"
+                            placeholder="1.0000"
+                            value={formData.linuxdo_credits_per_cny}
+                            onChange={e => setFormData({ ...formData, linuxdo_credits_per_cny: e.target.value })}
+                        />
+                        <p className="text-xs text-muted-foreground">1 元 = X 积分。例如填 1.0000 表示 1 元需要 1 积分。</p>
+                    </div>
+                </CardContent>
+                <CardFooter className="flex justify-between border-t bg-muted/40 p-4">
+                    <div>
+                        {success && <p className="text-sm text-green-600 font-medium">{success}</p>}
+                    </div>
+                    <Button onClick={handleSave} disabled={isLoading}>
+                        {isLoading && <RefreshCw className="w-4 h-4 mr-2 animate-spin" />}
+                        保存积分支付配置
                     </Button>
                 </CardFooter>
             </Card>

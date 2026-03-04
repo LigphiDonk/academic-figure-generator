@@ -67,6 +67,9 @@ def _settings_to_response(s: SystemSettings) -> SystemSettingsResponse:
         linuxdo_client_id=s.linuxdo_client_id,
         linuxdo_client_secret_set=s.linuxdo_client_secret_enc is not None,
         linuxdo_redirect_uri=s.linuxdo_redirect_uri,
+        epay_pid=s.epay_pid,
+        epay_key_set=s.epay_key_enc is not None,
+        linuxdo_credits_per_cny=float(s.linuxdo_credits_per_cny) if s.linuxdo_credits_per_cny is not None else None,
     )
 
 
@@ -132,6 +135,14 @@ async def update_system_settings(
             settings.linuxdo_client_secret_enc = encrypt_api_key(raw_secret)
         else:
             settings.linuxdo_client_secret_enc = None
+
+    # Handle EasyPay key encryption
+    if "epay_key" in updates:
+        raw_key = updates.pop("epay_key")
+        if raw_key:
+            settings.epay_key_enc = encrypt_api_key(raw_key)
+        else:
+            settings.epay_key_enc = None
 
     # Apply remaining scalar updates (base URLs, model)
     for field, value in updates.items():

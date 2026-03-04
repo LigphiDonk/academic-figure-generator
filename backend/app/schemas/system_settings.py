@@ -23,6 +23,10 @@ class SystemSettingsResponse(BaseModel):
     linuxdo_client_id: str | None = None
     linuxdo_client_secret_set: bool = False
     linuxdo_redirect_uri: str | None = None
+    # EasyPay (Linux DO Credits)
+    epay_pid: str | None = None
+    epay_key_set: bool = False
+    linuxdo_credits_per_cny: float | None = None
 
 
 class SystemSettingsUpdate(BaseModel):
@@ -45,3 +49,7 @@ class SystemSettingsUpdate(BaseModel):
     linuxdo_client_id: str | None = None
     linuxdo_client_secret: str | None = None
     linuxdo_redirect_uri: str | None = None
+    # EasyPay (Linux DO Credits)
+    epay_pid: str | None = None
+    epay_key: str | None = None
+    linuxdo_credits_per_cny: float | None = None

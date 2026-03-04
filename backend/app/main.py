@@ -152,6 +152,7 @@ def _include_routers(app: FastAPI, prefix: str) -> None:
         ("app.api.v1.color_schemes", "router"),
         ("app.api.v1.usage", "router"),
         ("app.api.v1.admin", "router"),
+        ("app.api.v1.payment", "router"),
     ]
 
     for module_path, attr in router_modules:

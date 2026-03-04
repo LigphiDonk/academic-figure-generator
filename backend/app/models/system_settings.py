@@ -114,3 +114,21 @@ class SystemSettings(Base, TimestampMixin):
         nullable=True,
         comment="Linux DO OAuth redirect URI",
     )
+
+    # EasyPay (Linux DO Credits)
+    epay_pid: Mapped[str | None] = mapped_column(
+        String(200),
+        nullable=True,
+        comment="EasyPay Client ID (pid)",
+    )
+    epay_key_enc: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="AES-256 encrypted EasyPay key",
+    )
+    linuxdo_credits_per_cny: Mapped[Decimal] = mapped_column(
+        Numeric(10, 4),
+        nullable=False,
+        default=Decimal("1.0000"),
+        comment="Linux DO credits per 1 CNY",
+    )
