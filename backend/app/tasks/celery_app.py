@@ -6,7 +6,7 @@ Two queues:
   - images:  NanoBanana API calls for image generation (long-running, IO-heavy)
 
 Run workers with:
-  celery -A app.tasks.celery_app worker -l info -Q prompts,images -c 4
+  celery -A app.tasks.celery_app worker -l info -Q default,prompts,images -c 4
 """
 
 from __future__ import annotations
@@ -41,6 +41,7 @@ celery_app = Celery(
     include=[
         "app.tasks.prompt_tasks",
         "app.tasks.image_tasks",
+        "app.tasks.ocr_tasks",
     ],
 )
 
@@ -64,6 +65,7 @@ celery_app.conf.update(
     result_expires=86400,
     # Routing
     task_routes={
+        "app.tasks.ocr_tasks.*": {"queue": "default"},
         "app.tasks.prompt_tasks.*": {"queue": "prompts"},
         "app.tasks.image_tasks.*": {"queue": "images"},
     },

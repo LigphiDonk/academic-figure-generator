@@ -59,7 +59,12 @@ class OCRService:
         RuntimeError
             On non-200 responses or unexpected payload structure.
         """
-        endpoint = server_url.rstrip("/") + "/layout-parsing"
+        normalized_url = server_url.rstrip("/")
+        endpoint = (
+            normalized_url
+            if normalized_url.endswith("/layout-parsing")
+            else normalized_url + "/layout-parsing"
+        )
         encoded = base64.b64encode(file_bytes).decode("ascii")
 
         payload = {

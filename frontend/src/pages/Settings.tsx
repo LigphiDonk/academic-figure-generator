@@ -315,7 +315,7 @@ export function Settings() {
                             value={formData.paddleocr_server_url}
                             onChange={e => setFormData({ ...formData, paddleocr_server_url: e.target.value })}
                         />
-                        <p className="text-xs text-muted-foreground">填写服务根地址，勿包含 /layout-parsing 路径。</p>
+                        <p className="text-xs text-muted-foreground">可填写服务根地址，也可直接填写完整的 <code className="font-mono">/layout-parsing</code> 接口地址。</p>
                     </div>
                     <div className="space-y-2">
                         <div className="flex justify-between items-center">
