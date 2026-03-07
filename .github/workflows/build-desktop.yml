@@ -3,8 +3,8 @@ name: Build Desktop App
 on:
   workflow_dispatch:
   push:
-    tags:
-      - "v*"
+    branches:
+      - feat/app
 
 jobs:
   build:
