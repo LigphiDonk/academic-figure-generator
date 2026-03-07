@@ -11,6 +11,12 @@ type MammothModule = {
 
 let pdfWorkerConfigured = false;
 
+function getPdfTextItemString(item: unknown): string {
+  if (typeof item !== 'object' || item === null) return '';
+  if (!('str' in item)) return '';
+  return typeof item.str === 'string' ? item.str : '';
+}
+
 function splitTextIntoSections(text: string): DocumentSection[] {
   const blocks = text.split(/\n{2,}/).map((item) => item.trim()).filter(Boolean);
   if (blocks.length === 0) return [];
@@ -37,7 +43,7 @@ async function parsePdfFile(file: File): Promise<{ parsedText: string; sections:
     Array.from({ length: pdf.numPages }, async (_, index) => {
       const page = await pdf.getPage(index + 1);
       const content = await page.getTextContent();
-      return content.items.map((item) => item.str ?? '').join(' ').trim();
+      return content.items.map(getPdfTextItemString).join(' ').trim();
     }),
   );
   const parsedText = pages.filter(Boolean).join('\n\n');
