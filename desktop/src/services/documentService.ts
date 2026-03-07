@@ -1,22 +1,15 @@
 import type { DocumentRecord, DocumentSection } from '../types/models';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 import { isoNow, wordCount } from '../lib/utils';
 import { mutateSnapshot, readSnapshot } from './storage';
 import { projectService } from './projectService';
 
-type PdfJsModule = {
-  getDocument: (input: { data: Uint8Array; disableWorker?: boolean }) => {
-    promise: Promise<{
-      numPages: number;
-      getPage: (pageNumber: number) => Promise<{
-        getTextContent: () => Promise<{ items: Array<{ str?: string }> }>;
-      }>;
-    }>;
-  };
-};
-
 type MammothModule = {
   extractRawText: (input: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }>;
 };
+
+let pdfWorkerConfigured = false;
 
 function splitTextIntoSections(text: string): DocumentSection[] {
   const blocks = text.split(/\n{2,}/).map((item) => item.trim()).filter(Boolean);
@@ -34,9 +27,12 @@ function splitTextIntoSections(text: string): DocumentSection[] {
 }
 
 async function parsePdfFile(file: File): Promise<{ parsedText: string; sections: DocumentSection[] }> {
-  const pdfjs = (await import('pdfjs-dist/legacy/build/pdf.mjs')) as unknown as PdfJsModule;
+  if (!pdfWorkerConfigured) {
+    pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+    pdfWorkerConfigured = true;
+  }
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const pdf = await pdfjs.getDocument({ data: bytes, disableWorker: true }).promise;
+  const pdf = await pdfjs.getDocument({ data: bytes }).promise;
   const pages = await Promise.all(
     Array.from({ length: pdf.numPages }, async (_, index) => {
       const page = await pdf.getPage(index + 1);
