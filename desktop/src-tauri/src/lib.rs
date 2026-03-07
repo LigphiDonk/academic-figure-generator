@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
+use tauri::Manager;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
