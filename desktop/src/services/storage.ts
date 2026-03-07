@@ -12,7 +12,7 @@ const defaultSettings: PublicSettings = {
   defaultColorScheme: 'okabe-ito',
   defaultResolution: '2K',
   defaultAspectRatio: '4:3',
-  setupCompleted: false,
+  setupCompleted: true,
   appVersion: '1.0.0',
   language: 'zh-CN',
   theme: 'system',

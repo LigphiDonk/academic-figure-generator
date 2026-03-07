@@ -36,9 +36,6 @@ export function Setup() {
 
   const handleSubmit = async () => {
     setError('');
-    if (!claudeApiKey.trim()) return setError('Claude API Key 为必填项');
-    if (!claudeModel.trim()) return setError('请选择 Claude 模型');
-    if (!nanobananaApiKey.trim()) return setError('NanoBanana API Key 为必填项');
     setIsSaving(true);
     try {
       await saveSetup({
@@ -48,13 +45,13 @@ export function Setup() {
           defaultAspectRatio: publicSettings?.defaultAspectRatio ?? '4:3',
         },
         secureSettings: {
-          claudeApiKey,
-          claudeBaseUrl,
-          claudeModel,
-          nanobananaApiKey,
-          nanobananaBaseUrl,
-          ocrServerUrl,
-          ocrToken,
+          claudeApiKey: claudeApiKey.trim(),
+          claudeBaseUrl: claudeBaseUrl.trim(),
+          claudeModel: claudeModel.trim(),
+          nanobananaApiKey: nanobananaApiKey.trim(),
+          nanobananaBaseUrl: nanobananaBaseUrl.trim(),
+          ocrServerUrl: ocrServerUrl.trim(),
+          ocrToken: ocrToken.trim(),
         },
       });
       navigate('/projects', { replace: true });
@@ -75,14 +72,14 @@ export function Setup() {
           </div>
           <div className="space-y-4">
             <h1 className="max-w-2xl text-5xl font-semibold tracking-tight text-slate-900">把 Web 版能力收进本地桌面应用</h1>
-            <p className="max-w-xl text-lg leading-8 text-slate-600">首次启动只需要配置你自己的 Claude 与 NanoBanana 凭证。后续所有项目、文档、提示词和生成记录都保存在本地。</p>
+            <p className="max-w-xl text-lg leading-8 text-slate-600">可以直接进入桌面端开始管理项目。Claude、NanoBanana 和 OCR 凭证都可以稍后再到设置页补充。</p>
           </div>
         </div>
 
         <Card className="border-slate-200/90 bg-white/90 shadow-xl shadow-slate-200/70 backdrop-blur">
           <CardHeader>
-            <CardTitle>首次设置</CardTitle>
-            <CardDescription>完成后将进入项目列表，可随时在设置页修改。</CardDescription>
+            <CardTitle>可选初始化设置</CardTitle>
+            <CardDescription>这些配置都不是必填项。保存后将直接进入项目列表，后续可随时在设置页修改。</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
@@ -122,7 +119,7 @@ export function Setup() {
               </div>
             </section>
 
-            <Button className="w-full" size="lg" onClick={() => void handleSubmit()} disabled={isSaving}>{isSaving ? '保存中...' : '完成设置并进入桌面端'}</Button>
+            <Button className="w-full" size="lg" onClick={() => void handleSubmit()} disabled={isSaving}>{isSaving ? '保存中...' : '进入桌面端'}</Button>
           </CardContent>
         </Card>
       </div>

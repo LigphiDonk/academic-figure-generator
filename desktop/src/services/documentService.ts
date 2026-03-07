@@ -3,6 +3,21 @@ import { isoNow, wordCount } from '../lib/utils';
 import { mutateSnapshot, readSnapshot } from './storage';
 import { projectService } from './projectService';
 
+type PdfJsModule = {
+  getDocument: (input: { data: Uint8Array; disableWorker?: boolean }) => {
+    promise: Promise<{
+      numPages: number;
+      getPage: (pageNumber: number) => Promise<{
+        getTextContent: () => Promise<{ items: Array<{ str?: string }> }>;
+      }>;
+    }>;
+  };
+};
+
+type MammothModule = {
+  extractRawText: (input: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }>;
+};
+
 function splitTextIntoSections(text: string): DocumentSection[] {
   const blocks = text.split(/\n{2,}/).map((item) => item.trim()).filter(Boolean);
   if (blocks.length === 0) return [];
@@ -18,24 +33,10 @@ function splitTextIntoSections(text: string): DocumentSection[] {
   });
 }
 
-async function importOptionalModule<T>(moduleName: string): Promise<T | undefined> {
-  try {
-    return (await new Function(`return import("${moduleName}")`)()) as T;
-  } catch {
-    return undefined;
-  }
-}
-
 async function parsePdfFile(file: File): Promise<{ parsedText: string; sections: DocumentSection[] }> {
-  const pdfjs = await importOptionalModule<{
-    getDocument: (input: { data: Uint8Array }) => { promise: Promise<{ numPages: number; getPage: (pageNumber: number) => Promise<{ getTextContent: () => Promise<{ items: Array<{ str?: string }> }> }> }> };
-  }>('pdfjs-dist');
-  if (!pdfjs) {
-    throw new Error('当前环境缺少 pdfjs-dist，无法解析 PDF 正文。请先安装该依赖后再重新导入。');
-  }
-
+  const pdfjs = (await import('pdfjs-dist/legacy/build/pdf.mjs')) as unknown as PdfJsModule;
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const pdf = await pdfjs.getDocument({ data: bytes }).promise;
+  const pdf = await pdfjs.getDocument({ data: bytes, disableWorker: true }).promise;
   const pages = await Promise.all(
     Array.from({ length: pdf.numPages }, async (_, index) => {
       const page = await pdf.getPage(index + 1);
@@ -48,13 +49,7 @@ async function parsePdfFile(file: File): Promise<{ parsedText: string; sections:
 }
 
 async function parseDocxFile(file: File): Promise<{ parsedText: string; sections: DocumentSection[] }> {
-  const mammoth = await importOptionalModule<{
-    extractRawText: (input: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }>;
-  }>('mammoth');
-  if (!mammoth) {
-    throw new Error('当前环境缺少 mammoth，无法解析 DOCX 正文。请先安装该依赖后再重新导入。');
-  }
-
+  const mammoth = (await import('mammoth')) as unknown as MammothModule;
   const result = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
   const parsedText = result.value.trim();
   return { parsedText, sections: splitTextIntoSections(parsedText) };

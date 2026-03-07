@@ -190,7 +190,7 @@ export function ProjectWorkspace() {
 
         <TabsContent value="documents">
           <Card className="rounded-[28px] border-white/70 bg-white/85 shadow-xl shadow-slate-200/60">
-            <CardHeader><CardTitle>导入论文文档</CardTitle><CardDescription>支持 PDF / DOCX / TXT。TXT 可直接解析；PDF 和 DOCX 需要本地安装 `pdfjs-dist` / `mammoth` 后才能提取正文。</CardDescription></CardHeader>
+            <CardHeader><CardTitle>导入论文文档</CardTitle><CardDescription>支持 PDF / DOCX / TXT，桌面应用会直接解析正文，无需额外安装解析依赖。</CardDescription></CardHeader>
             <CardContent className="space-y-4">
               <Label htmlFor="document-upload" className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-sm text-slate-600">
                 <FileUp className="h-4 w-4" />选择一个或多个文档

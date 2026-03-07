@@ -40,7 +40,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: desktop
-        run: npm ci
+        run: npm install
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

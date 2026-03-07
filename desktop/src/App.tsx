@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect } from 'react';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { Projects } from './pages/Projects';
@@ -20,22 +20,6 @@ function LoadingScreen() {
   );
 }
 
-function RequireSetup({ children }: { children: ReactNode }) {
-  const settings = useSettingsStore((state) => state.publicSettings);
-  if (!settings?.setupCompleted) {
-    return <Navigate to="/setup" replace />;
-  }
-  return <>{children}</>;
-}
-
-function SetupRoute() {
-  const settings = useSettingsStore((state) => state.publicSettings);
-  if (settings?.setupCompleted) {
-    return <Navigate to="/projects" replace />;
-  }
-  return <Setup />;
-}
-
 function App() {
   const isLoaded = useSettingsStore((state) => state.isLoaded);
   const load = useSettingsStore((state) => state.load);
@@ -49,14 +33,8 @@ function App() {
   return (
     <HashRouter>
       <Routes>
-        <Route path="/setup" element={<SetupRoute />} />
-        <Route
-          element={
-            <RequireSetup>
-              <Layout />
-            </RequireSetup>
-          }
-        >
+        <Route path="/setup" element={<Setup />} />
+        <Route element={<Layout />}>
           <Route path="/" element={<Navigate to="/projects" replace />} />
           <Route path="/projects" element={<Projects />} />
           <Route path="/projects/:id" element={<ProjectWorkspace />} />
