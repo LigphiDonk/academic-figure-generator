@@ -1,0 +1,151 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Surfaces */
+    --background: 0 0% 100%;
+    --foreground: 240 10% 6%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 6%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 6%;
+
+    /* Primary — refined slate-blue, not saturated Okabe */
+    --primary: 217 91% 40%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary — warm neutral, replaces orange */
+    --secondary: 240 5% 93%;
+    --secondary-foreground: 240 10% 15%;
+
+    /* Muted — OpenAI-style off-white #f7f7f8 */
+    --muted: 240 5% 97%;
+    --muted-foreground: 240 5% 45%;
+
+    /* Accent — very light blue-gray hover state */
+    --accent: 217 30% 95%;
+    --accent-foreground: 217 60% 30%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Borders — lighter and more subtle */
+    --border: 240 6% 90%;
+    --input: 240 6% 85%;
+    --ring: 217 91% 40%;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    /* Surfaces — true dark, not blue-tinted */
+    --background: 240 6% 10%;
+    --foreground: 0 0% 95%;
+
+    --card: 240 5% 13%;
+    --card-foreground: 0 0% 95%;
+
+    --popover: 240 5% 13%;
+    --popover-foreground: 0 0% 95%;
+
+    /* Primary — brighter in dark context for contrast */
+    --primary: 217 91% 58%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary — dark muted surface */
+    --secondary: 240 5% 18%;
+    --secondary-foreground: 0 0% 85%;
+
+    --muted: 240 5% 16%;
+    --muted-foreground: 240 5% 55%;
+
+    --accent: 217 30% 20%;
+    --accent-foreground: 217 80% 72%;
+
+    --destructive: 0 62% 40%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Borders — visible but not heavy */
+    --border: 240 5% 20%;
+    --input: 240 5% 22%;
+    --ring: 217 91% 58%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Smooth transitions for interactive elements */
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [role="button"] {
+    transition-property: color, background-color, border-color, box-shadow, opacity;
+    transition-duration: 150ms;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Refined selection color */
+  ::selection {
+    background-color: hsl(217 91% 40% / 0.15);
+    color: hsl(217 91% 25%);
+  }
+
+  .dark ::selection {
+    background-color: hsl(217 91% 58% / 0.25);
+    color: hsl(217 91% 80%);
+  }
+}
+
+/* Thin, subtle sidebar scrollbar */
+.sidebar-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(240 6% 82%) transparent;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb {
+  background-color: hsl(240 6% 82%);
+  border-radius: 999px;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(240 6% 70%);
+}
+
+.dark .sidebar-scrollbar {
+  scrollbar-color: hsl(240 5% 28%) transparent;
+}
+
+.dark .sidebar-scrollbar::-webkit-scrollbar-thumb {
+  background-color: hsl(240 5% 28%);
+}
+
+.dark .sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(240 5% 38%);
+}

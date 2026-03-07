@@ -1,0 +1,206 @@
+import type { AspectRatio, ColorScheme, ColorValues, FigureType } from '../types/models';
+
+const now = '2026-03-06T00:00:00.000Z';
+
+const buildColors = (colors: ColorValues): ColorValues => colors;
+
+export const PRESET_COLOR_SCHEMES: ColorScheme[] = [
+  {
+    id: 'okabe-ito',
+    name: 'Okabe-Ito',
+    description: '色盲友好，适合顶会和期刊默认方案。',
+    colors: buildColors({
+      primary: '#0072B2',
+      secondary: '#E69F00',
+      tertiary: '#009E73',
+      text: '#333333',
+      fill: '#FFFFFF',
+      sectionBg: '#F7F7F7',
+      border: '#CCCCCC',
+      arrow: '#4D4D4D',
+    }),
+    isDefault: true,
+    isPreset: true,
+    createdAt: now,
+    updatedAt: now,
+  },
+  {
+    id: 'blue-monochrome',
+    name: 'Blue Monochrome',
+    description: '蓝色单色系，适合严肃技术报告和灰度打印。',
+    colors: buildColors({
+      primary: '#1565C0',
+      secondary: '#42A5F5',
+      tertiary: '#90CAF9',
+      text: '#212121',
+      fill: '#FFFFFF',
+      sectionBg: '#F5F8FC',
+      border: '#B0BEC5',
+      arrow: '#37474F',
+    }),
+    isDefault: false,
+    isPreset: true,
+    createdAt: now,
+    updatedAt: now,
+  },
+  {
+    id: 'warm-earth',
+    name: 'Warm Earth',
+    description: '暖土色系，适合生物、医学、生态类论文。',
+    colors: buildColors({
+      primary: '#C0392B',
+      secondary: '#E67E22',
+      tertiary: '#F39C12',
+      text: '#2C2C2C',
+      fill: '#FFFFFF',
+      sectionBg: '#FDF6EC',
+      border: '#D5C5A1',
+      arrow: '#5D4037',
+    }),
+    isDefault: false,
+    isPreset: true,
+    createdAt: now,
+    updatedAt: now,
+  },
+  {
+    id: 'purple-green',
+    name: 'Purple-Green',
+    description: '高对比视觉风格，适合对比和消融图。',
+    colors: buildColors({
+      primary: '#6A1B9A',
+      secondary: '#2E7D32',
+      tertiary: '#AB47BC',
+      text: '#1A1A1A',
+      fill: '#FFFFFF',
+      sectionBg: '#F8F5FC',
+      border: '#CE93D8',
+      arrow: '#4A148C',
+    }),
+    isDefault: false,
+    isPreset: true,
+    createdAt: now,
+    updatedAt: now,
+  },
+  {
+    id: 'grayscale',
+    name: 'Grayscale',
+    description: '黑白印刷友好，适合保守投稿风格。',
+    colors: buildColors({
+      primary: '#212121',
+      secondary: '#616161',
+      tertiary: '#9E9E9E',
+      text: '#111111',
+      fill: '#FFFFFF',
+      sectionBg: '#F5F5F5',
+      border: '#BDBDBD',
+      arrow: '#424242',
+    }),
+    isDefault: false,
+    isPreset: true,
+    createdAt: now,
+    updatedAt: now,
+  },
+  {
+    id: 'teal-coral',
+    name: 'Teal-Coral',
+    description: '现代感更强，适合 HCI 和系统设计论文。',
+    colors: buildColors({
+      primary: '#00695C',
+      secondary: '#E64A19',
+      tertiary: '#26A69A',
+      text: '#212121',
+      fill: '#FFFFFF',
+      sectionBg: '#F0F9F8',
+      border: '#80CBC4',
+      arrow: '#004D40',
+    }),
+    isDefault: false,
+    isPreset: true,
+    createdAt: now,
+    updatedAt: now,
+  },
+  {
+    id: 'ml-topconf-tab10',
+    name: 'ML TopConf Tab10',
+    description: 'Matplotlib Tab10 风格，兼容多数 ML 论文配图习惯。',
+    colors: buildColors({
+      primary: '#1F77B4',
+      secondary: '#FF7F0E',
+      tertiary: '#2CA02C',
+      text: '#1F2937',
+      fill: '#FFFFFF',
+      sectionBg: '#F8FAFC',
+      border: '#CBD5E1',
+      arrow: '#334155',
+    }),
+    isDefault: false,
+    isPreset: true,
+    createdAt: now,
+    updatedAt: now,
+  },
+  {
+    id: 'ml-topconf-colorblind',
+    name: 'ML TopConf Colorblind',
+    description: 'Seaborn colorblind 风格，适合更强可访问性场景。',
+    colors: buildColors({
+      primary: '#0173B2',
+      secondary: '#DE8F05',
+      tertiary: '#029E73',
+      text: '#1F2937',
+      fill: '#FFFFFF',
+      sectionBg: '#F8FAFC',
+      border: '#CBD5E1',
+      arrow: '#334155',
+    }),
+    isDefault: false,
+    isPreset: true,
+    createdAt: now,
+    updatedAt: now,
+  },
+  {
+    id: 'ml-topconf-deep',
+    name: 'ML TopConf Deep',
+    description: 'Seaborn deep 风格，适合多面板对比图。',
+    colors: buildColors({
+      primary: '#4C72B0',
+      secondary: '#DD8452',
+      tertiary: '#55A868',
+      text: '#1F2937',
+      fill: '#FFFFFF',
+      sectionBg: '#F8FAFC',
+      border: '#CBD5E1',
+      arrow: '#334155',
+    }),
+    isDefault: false,
+    isPreset: true,
+    createdAt: now,
+    updatedAt: now,
+  },
+];
+
+export const COLOR_ROLE_LABELS: Record<keyof ColorValues, string> = {
+  primary: 'Primary 主色',
+  secondary: 'Secondary 辅色',
+  tertiary: 'Tertiary 第三色',
+  text: 'Text 文本',
+  fill: 'Fill 画布底色',
+  sectionBg: 'Section Background 分区底色',
+  border: 'Border 边框',
+  arrow: 'Arrow 连线/箭头',
+};
+
+export const FIGURE_TYPE_OPTIONS: Array<{
+  id: FigureType;
+  name: string;
+  defaultAspectRatio: AspectRatio;
+  description: string;
+}> = [
+  { id: 'overall_framework', name: '总体框架图', defaultAspectRatio: '16:9', description: '适合 Figure 1，展示完整处理流程。' },
+  { id: 'network_architecture', name: '网络架构图', defaultAspectRatio: '16:9', description: '层级结构、张量尺寸、模块关系。' },
+  { id: 'module_detail', name: '模块细节图', defaultAspectRatio: '4:3', description: '聚焦一个关键模块的内部机制。' },
+  { id: 'comparison_ablation', name: '对比消融图', defaultAspectRatio: '16:9', description: '展示方法差异、指标和视觉对比。' },
+  { id: 'data_behavior', name: '数据行为图', defaultAspectRatio: '4:3', description: '展示曲线、特征、热力图、t-SNE 等。' },
+];
+
+export const RESOLUTION_OPTIONS = ['1K', '2K', '4K'] as const;
+export const ASPECT_RATIO_OPTIONS: AspectRatio[] = ['1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3'];

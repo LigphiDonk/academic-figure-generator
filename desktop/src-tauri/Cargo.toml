@@ -1,0 +1,17 @@
+[package]
+name = "academic-figure-generator-desktop"
+version = "0.1.0"
+description = "Academic Figure Generator Desktop shell"
+edition = "2021"
+
+[lib]
+name = "academic_figure_generator_desktop"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
