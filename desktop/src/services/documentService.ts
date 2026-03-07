@@ -1,20 +1,69 @@
 import type { DocumentRecord, DocumentSection } from '../types/models';
-import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 import { isoNow, wordCount } from '../lib/utils';
 import { mutateSnapshot, readSnapshot } from './storage';
 import { projectService } from './projectService';
 
+type PdfJsModule = {
+  GlobalWorkerOptions: {
+    workerSrc: string;
+  };
+  getDocument: (input: { data: Uint8Array }) => {
+    promise: Promise<{
+      numPages: number;
+      getPage: (pageNumber: number) => Promise<{
+        getTextContent: () => Promise<{ items: unknown[] }>;
+      }>;
+    }>;
+  };
+};
+
 type MammothModule = {
   extractRawText: (input: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }>;
 };
 
-let pdfWorkerConfigured = false;
+type PromiseWithResolversResult<T> = {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+  reject: (reason?: unknown) => void;
+};
+
+type PromiseWithResolversCtor = PromiseConstructor & {
+  withResolvers?: <T>() => PromiseWithResolversResult<T>;
+};
+
+let pdfjsModulePromise: Promise<PdfJsModule> | undefined;
 
 function getPdfTextItemString(item: unknown): string {
   if (typeof item !== 'object' || item === null) return '';
   if (!('str' in item)) return '';
   return typeof item.str === 'string' ? item.str : '';
+}
+
+function ensurePromiseWithResolvers(): void {
+  const promiseCtor = Promise as PromiseWithResolversCtor;
+  if (typeof promiseCtor.withResolvers === 'function') return;
+  promiseCtor.withResolvers = function withResolvers<T>(): PromiseWithResolversResult<T> {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+}
+
+async function loadPdfJs(): Promise<PdfJsModule> {
+  if (!pdfjsModulePromise) {
+    ensurePromiseWithResolvers();
+    pdfjsModulePromise = import('pdfjs-dist/legacy/build/pdf.mjs').then((module) => {
+      const pdfjs = module as unknown as PdfJsModule;
+      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+      return pdfjs;
+    });
+  }
+  return pdfjsModulePromise;
 }
 
 function splitTextIntoSections(text: string): DocumentSection[] {
@@ -33,10 +82,7 @@ function splitTextIntoSections(text: string): DocumentSection[] {
 }
 
 async function parsePdfFile(file: File): Promise<{ parsedText: string; sections: DocumentSection[] }> {
-  if (!pdfWorkerConfigured) {
-    pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-    pdfWorkerConfigured = true;
-  }
+  const pdfjs = await loadPdfJs();
   const bytes = new Uint8Array(await file.arrayBuffer());
   const pdf = await pdfjs.getDocument({ data: bytes }).promise;
   const pages = await Promise.all(
