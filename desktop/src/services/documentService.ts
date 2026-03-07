@@ -7,6 +7,7 @@ import { projectService } from './projectService';
 type PdfJsModule = {
   GlobalWorkerOptions: {
     workerSrc: string;
+    workerPort?: Worker | null;
   };
   getDocument: (input: { data: Uint8Array }) => {
     promise: Promise<{
@@ -32,7 +33,15 @@ type PromiseWithResolversCtor = PromiseConstructor & {
   withResolvers?: <T>() => PromiseWithResolversResult<T>;
 };
 
+type MapWithUpsert<K, V> = Map<K, V> & {
+  getOrInsert?: (key: K, value: V) => V;
+  getOrInsertComputed?: (key: K, compute: (key: K) => V) => V;
+};
+
 let pdfjsModulePromise: Promise<PdfJsModule> | undefined;
+let pdfjsWorkerPort: Worker | undefined;
+let pdfjsWorkerBootstrapUrl: string | undefined;
+let configuredPdfWorkerUrl: string | undefined;
 
 function getPdfTextItemString(item: unknown): string {
   if (typeof item !== 'object' || item === null) return '';
@@ -54,12 +63,125 @@ function ensurePromiseWithResolvers(): void {
   };
 }
 
+function ensureMapUpsert(): void {
+  const mapProto = Map.prototype as unknown as MapWithUpsert<unknown, unknown>;
+  if (typeof mapProto.getOrInsert !== 'function') {
+    Object.defineProperty(mapProto, 'getOrInsert', {
+      configurable: true,
+      writable: true,
+      value(this: Map<unknown, unknown>, key: unknown, value: unknown) {
+        if (this.has(key)) return this.get(key);
+        this.set(key, value);
+        return value;
+      },
+    });
+  }
+  if (typeof mapProto.getOrInsertComputed === 'function') return;
+  Object.defineProperty(mapProto, 'getOrInsertComputed', {
+    configurable: true,
+    writable: true,
+    value(this: Map<unknown, unknown>, key: unknown, compute: (key: unknown) => unknown) {
+      if (this.has(key)) return this.get(key);
+      const value = compute(key);
+      this.set(key, value);
+      return value;
+    },
+  });
+}
+
+function ensurePdfJsCompat(): void {
+  ensurePromiseWithResolvers();
+  ensureMapUpsert();
+}
+
+function createPdfJsWorkerBootstrapSource(workerUrl: string): string {
+  const quotedWorkerUrl = JSON.stringify(workerUrl);
+  return `
+const promiseCtor = Promise;
+if (typeof promiseCtor.withResolvers !== 'function') {
+  promiseCtor.withResolvers = function withResolvers() {
+    let resolve;
+    let reject;
+    const promise = new Promise((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+}
+const mapProto = Map.prototype;
+if (typeof mapProto.getOrInsert !== 'function') {
+  Object.defineProperty(mapProto, 'getOrInsert', {
+    configurable: true,
+    writable: true,
+    value(key, value) {
+      if (this.has(key)) return this.get(key);
+      this.set(key, value);
+      return value;
+    },
+  });
+}
+if (typeof mapProto.getOrInsertComputed !== 'function') {
+  Object.defineProperty(mapProto, 'getOrInsertComputed', {
+    configurable: true,
+    writable: true,
+    value(key, compute) {
+      if (this.has(key)) return this.get(key);
+      const value = compute(key);
+      this.set(key, value);
+      return value;
+    },
+  });
+}
+import ${quotedWorkerUrl};
+`;
+}
+
+function teardownPdfJsWorker(): void {
+  if (pdfjsWorkerPort) {
+    pdfjsWorkerPort.terminate();
+    pdfjsWorkerPort = undefined;
+  }
+  if (pdfjsWorkerBootstrapUrl) {
+    URL.revokeObjectURL(pdfjsWorkerBootstrapUrl);
+    pdfjsWorkerBootstrapUrl = undefined;
+  }
+  configuredPdfWorkerUrl = undefined;
+}
+
+function configurePdfJsWorker(pdfjs: PdfJsModule): void {
+  const workerUrl = new URL(pdfWorkerUrl, window.location.href).href;
+  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+
+  if (typeof Worker !== 'function' || typeof Blob !== 'function' || typeof URL.createObjectURL !== 'function') {
+    pdfjs.GlobalWorkerOptions.workerPort = null;
+    return;
+  }
+
+  if (configuredPdfWorkerUrl !== workerUrl) {
+    teardownPdfJsWorker();
+  }
+
+  if (!pdfjsWorkerPort) {
+    try {
+      const bootstrapSource = createPdfJsWorkerBootstrapSource(workerUrl);
+      pdfjsWorkerBootstrapUrl = URL.createObjectURL(new Blob([bootstrapSource], { type: 'text/javascript' }));
+      pdfjsWorkerPort = new Worker(pdfjsWorkerBootstrapUrl, { type: 'module' });
+      configuredPdfWorkerUrl = workerUrl;
+    } catch {
+      teardownPdfJsWorker();
+    }
+  }
+
+  pdfjs.GlobalWorkerOptions.workerPort = pdfjsWorkerPort ?? null;
+}
+
 async function loadPdfJs(): Promise<PdfJsModule> {
   if (!pdfjsModulePromise) {
-    ensurePromiseWithResolvers();
+    ensurePdfJsCompat();
     pdfjsModulePromise = import('pdfjs-dist/legacy/build/pdf.mjs').then((module) => {
       const pdfjs = module as unknown as PdfJsModule;
-      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+      configurePdfJsWorker(pdfjs);
       return pdfjs;
     });
   }
@@ -82,18 +204,24 @@ function splitTextIntoSections(text: string): DocumentSection[] {
 }
 
 async function parsePdfFile(file: File): Promise<{ parsedText: string; sections: DocumentSection[] }> {
-  const pdfjs = await loadPdfJs();
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const pdf = await pdfjs.getDocument({ data: bytes }).promise;
-  const pages = await Promise.all(
-    Array.from({ length: pdf.numPages }, async (_, index) => {
-      const page = await pdf.getPage(index + 1);
-      const content = await page.getTextContent();
-      return content.items.map(getPdfTextItemString).join(' ').trim();
-    }),
-  );
-  const parsedText = pages.filter(Boolean).join('\n\n');
-  return { parsedText, sections: splitTextIntoSections(parsedText) };
+  try {
+    const pdfjs = await loadPdfJs();
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const pdf = await pdfjs.getDocument({ data: bytes }).promise;
+    const pages = await Promise.all(
+      Array.from({ length: pdf.numPages }, async (_, index) => {
+        const page = await pdf.getPage(index + 1);
+        const content = await page.getTextContent();
+        return content.items.map(getPdfTextItemString).join(' ').trim();
+      }),
+    );
+    const parsedText = pages.filter(Boolean).join('\n\n');
+    return { parsedText, sections: splitTextIntoSections(parsedText) };
+  } catch (error) {
+    console.error('Failed to parse PDF document', error);
+    const message = error instanceof Error ? error.message : '未知错误';
+    throw new Error(`PDF 解析失败：${message}`);
+  }
 }
 
 async function parseDocxFile(file: File): Promise<{ parsedText: string; sections: DocumentSection[] }> {
