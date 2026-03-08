@@ -37,7 +37,8 @@ export function ProjectWorkspace() {
   const [colorSchemes, setColorSchemes] = useState<ColorScheme[]>([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [isBusy, setIsBusy] = useState(false);
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  const [isGeneratingPrompts, setIsGeneratingPrompts] = useState(false);
 
   // Document & page range state
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>('');
@@ -141,7 +142,6 @@ export function ProjectWorkspace() {
     if (!fileList?.length || !projectId) return;
     setError('');
     setSuccess('');
-    setIsBusy(true);
     try {
       await documentService.uploadDocuments(projectId, Array.from(fileList));
       await loadWorkspace();
@@ -151,7 +151,6 @@ export function ProjectWorkspace() {
       setError(uploadError instanceof Error ? uploadError.message : '文档上传失败');
     } finally {
       event.target.value = '';
-      setIsBusy(false);
     }
   };
 
@@ -159,7 +158,7 @@ export function ProjectWorkspace() {
     if (!projectId) return;
     setError('');
     setSuccess('');
-    setIsBusy(true);
+    setIsGeneratingPrompts(true);
     try {
       await promptService.generatePrompts({
         projectId,
@@ -176,7 +175,7 @@ export function ProjectWorkspace() {
     } catch (generationError) {
       setError(generationError instanceof Error ? generationError.message : '提示词生成失败');
     } finally {
-      setIsBusy(false);
+      setIsGeneratingPrompts(false);
     }
   };
 
@@ -197,7 +196,7 @@ export function ProjectWorkspace() {
     const s = getSettings(promptId);
     setError('');
     setSuccess('');
-    setIsBusy(true);
+    setBusyIds((prev) => new Set(prev).add(promptId));
     try {
       await imageService.generateFromPrompt({
         projectId,
@@ -212,7 +211,7 @@ export function ProjectWorkspace() {
     } catch (generationError) {
       setError(generationError instanceof Error ? generationError.message : '图片生成失败');
     } finally {
-      setIsBusy(false);
+      setBusyIds((prev) => { const next = new Set(prev); next.delete(promptId); return next; });
     }
   };
 
@@ -370,7 +369,7 @@ export function ProjectWorkspace() {
               </div>
 
               <div className="space-y-2"><Label htmlFor="custom-request">用户补充要求</Label><Textarea id="custom-request" value={customRequest} onChange={(event) => setCustomRequest(event.target.value)} rows={3} placeholder="例如：重点突出模块间数据流向，图例放在右下角。" /></div>
-              <Button onClick={() => void handleGeneratePrompts()} disabled={isBusy}><Sparkles className="mr-2 h-4 w-4" />{isBusy ? '生成中...' : templateMode ? '生成模板草案' : '调用 Claude 生成'}</Button>
+              <Button onClick={() => void handleGeneratePrompts()} disabled={isGeneratingPrompts}><Sparkles className="mr-2 h-4 w-4" />{isGeneratingPrompts ? '生成中...' : templateMode ? '生成模板草案' : '调用 Claude 生成'}</Button>
             </CardContent>
           </Card>
         </div>
@@ -398,7 +397,7 @@ export function ProjectWorkspace() {
                   <img src={latestImage.previewDataUrl} alt={prompt.title ?? prompt.id} className="aspect-video w-full object-cover" />
                 ) : (
                   <div className="flex aspect-video items-center justify-center bg-slate-100 text-sm text-slate-400">
-                    {isBusy ? '生成中...' : '待生成图片'}
+                    {busyIds.has(prompt.id) ? '生成中...' : '待生成图片'}
                   </div>
                 )}
 
@@ -446,8 +445,8 @@ export function ProjectWorkspace() {
                   {/* Action buttons */}
                   <div className="flex flex-wrap gap-3">
                     <Button variant="outline" size="sm" onClick={() => void handleSavePrompt(prompt.id)}>保存修改</Button>
-                    <Button size="sm" onClick={() => void handleGenerateImage(prompt.id)} disabled={isBusy}>
-                      <ImagePlus className="mr-2 h-4 w-4" />{isBusy ? '生成中...' : '生成图片'}
+                    <Button size="sm" onClick={() => void handleGenerateImage(prompt.id)} disabled={busyIds.has(prompt.id)}>
+                      <ImagePlus className="mr-2 h-4 w-4" />{busyIds.has(prompt.id) ? '生成中...' : '生成图片'}
                     </Button>
                     {latestImage?.previewDataUrl ? (
                       <Button asChild variant="outline" size="sm">
