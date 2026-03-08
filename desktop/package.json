@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "icons:sync": "./scripts/generate-icons.sh",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
   },
