@@ -1,5 +1,6 @@
 import { FIGURE_TYPES } from '../core/prompts/figureTypes';
 import { ACADEMIC_FIGURE_SYSTEM_PROMPT, TEMPLATE_FIGURE_SYSTEM_PROMPT } from '../core/prompts/systemPrompt';
+import { apiFetch } from '../lib/apiFetch';
 import type { ColorValues, FigureType, SecureSettings } from '../types/models';
 
 export interface ClaudeFigureDraft {
@@ -174,7 +175,7 @@ function normalizeClaudeApiUrl(baseOrFull?: string): string {
 export async function generateClaudePrompts(request: ClaudeRequest): Promise<ClaudeResponse> {
   const endpoint = normalizeClaudeApiUrl(request.secureSettings.claudeBaseUrl);
   const startedAt = performance.now();
-  const response = await fetch(endpoint, {
+  const response = await apiFetch(endpoint, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',

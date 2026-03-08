@@ -78,6 +78,7 @@ fn save_secure_settings(app: tauri::AppHandle, settings: SecureSettings) -> Resu
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_http::init())
         .invoke_handler(tauri::generate_handler![
             get_app_paths,
             load_secure_settings,

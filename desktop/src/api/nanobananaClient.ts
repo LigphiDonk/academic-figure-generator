@@ -1,3 +1,4 @@
+import { apiFetch } from '../lib/apiFetch';
 import type { AspectRatio, Resolution, SecureSettings } from '../types/models';
 
 interface NanoRequest {
@@ -97,7 +98,7 @@ export async function generateNanoImage(request: NanoRequest): Promise<NanoRespo
 
   const startedAt = performance.now();
 
-  const response = await fetch(endpoint, {
+  const response = await apiFetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
