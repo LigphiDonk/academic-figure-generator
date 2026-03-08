@@ -24,6 +24,7 @@ const emptySecureSettings: SecureSettings = {
   claudeModel: 'claude-sonnet-4-20250514',
   nanobananaApiKey: '',
   nanobananaBaseUrl: 'https://api.keepgo.icu',
+  nanobananaModel: 'gemini-2.0-flash-exp-image-generation',
   ocrServerUrl: '',
   ocrToken: '',
 };
@@ -114,9 +115,9 @@ function normalizeSnapshot(parsed: Partial<AppSnapshot>): AppSnapshot {
     version: CURRENT_SNAPSHOT_VERSION,
     images: Array.isArray(parsed.images)
       ? parsed.images.map((image) => ({
-          ...image,
-          previewDataUrl: undefined,
-        }))
+        ...image,
+        previewDataUrl: undefined,
+      }))
       : [],
     settings: {
       ...defaultSettings,

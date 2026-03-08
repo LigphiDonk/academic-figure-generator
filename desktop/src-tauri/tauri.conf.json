@@ -10,6 +10,9 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "security": {
+      "csp": null
+    },
     "windows": [
       {
         "label": "main",
@@ -23,7 +26,12 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg", "msi", "nsis"],
+    "targets": [
+      "app",
+      "dmg",
+      "msi",
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

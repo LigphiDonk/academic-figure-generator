@@ -39,64 +39,71 @@ const ASPECT_RATIO_MAP: Record<AspectRatio, [number, number]> = {
 function computeDimensions(resolution: Resolution, aspectRatio: AspectRatio): { width: number; height: number } {
   const basePx = RESOLUTION_MAP[resolution] ?? 2048;
   const [rw, rh] = ASPECT_RATIO_MAP[aspectRatio] ?? [1, 1];
-  const ratio = rw / rh;
-  let width: number;
-  let height: number;
-  if (ratio >= 1) {
-    width = basePx;
-    height = Math.floor(basePx / ratio);
-  } else {
-    height = basePx;
-    width = Math.floor(basePx * ratio);
-  }
-  width = Math.floor(width / 64) * 64;
-  height = Math.floor(height / 64) * 64;
+  const area = basePx * basePx;
+  // height = sqrt(area * rh / rw), width = height * rw / rh
+  let height = Math.sqrt(area * rh / rw);
+  let width = height * rw / rh;
+  // Round to nearest multiple of 8
+  width = Math.max(8, Math.round(width / 8) * 8);
+  height = Math.max(8, Math.round(height / 8) * 8);
   return { width, height };
 }
 
-function buildGenerationPayload(promptText: string, aspectRatio: AspectRatio, imageSize: Resolution, colorScheme: string): {
-  contents: Array<{ parts: Array<{ text: string }> }>;
-  generationConfig: {
-    responseModalities: ['IMAGE'];
-    imageConfig: {
-      aspectRatio: AspectRatio;
-      image_size: Resolution;
-    };
-  };
-  fullPrompt: string;
-} {
+/**
+ * Generate an image via the NanoBanana API using OpenAI-compatible format.
+ * 
+ * This matches the backend's image_service.py implementation:
+ * - Endpoint: POST /v1/images/generations
+ * - Body: { model, prompt, n, size, aspect_ratio, response_format }
+ * - Auth: Bearer token
+ * - Response: { data: [{ b64_json }] }
+ */
+export async function generateNanoImage(request: NanoRequest): Promise<NanoResponse> {
+  const { width, height } = computeDimensions(request.resolution, request.aspectRatio);
+  const sizeStr = `${width}x${height}`;
+  const baseUrl = request.secureSettings.nanobananaBaseUrl.replace(/\/+$/, '');
+  const endpoint = `${baseUrl}/v1/images/generations`;
+  const model = request.secureSettings.nanobananaModel || 'gemini-2.0-flash-exp-image-generation';
+
   const stylePrefix =
     'Academic figure, publication-quality, white background, clean vector style, ' +
     'no shadows, no 3D effects, professional sans-serif labels, ' +
-    `color scheme: ${colorScheme}. `;
+    `color scheme: ${request.colorScheme}. `;
+  const promptText = request.editInstruction
+    ? `${request.editInstruction}\n\nOriginal prompt context:\n${request.prompt}`
+    : request.prompt;
   const fullPrompt = stylePrefix + promptText;
-  return {
-    contents: [{ parts: [{ text: fullPrompt }] }],
-    generationConfig: {
-      responseModalities: ['IMAGE'],
-      imageConfig: {
-        aspectRatio,
-        image_size: imageSize,
-      },
-    },
-    fullPrompt,
-  };
-}
 
-export async function generateNanoImage(request: NanoRequest): Promise<NanoResponse> {
-  const { width, height } = computeDimensions(request.resolution, request.aspectRatio);
-  const endpoint = `${request.secureSettings.nanobananaBaseUrl.replace(/\/+$/, '')}/v1beta/models/gemini-3-pro-image-preview:generateContent`;
+  // Build OpenAI-compatible body (matches backend image_service.py)
+  const body: Record<string, unknown> = {
+    model,
+    prompt: fullPrompt,
+    n: 1,
+    size: sizeStr,
+    aspect_ratio: request.aspectRatio,
+    response_format: 'b64_json',
+  };
+
+  // If reference image, encode and include
+  if (request.referenceImage) {
+    const arrayBuffer = await request.referenceImage.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = '';
+    for (const byte of bytes) {
+      binary += String.fromCharCode(byte);
+    }
+    body.image = btoa(binary);
+  }
+
   const startedAt = performance.now();
-  const promptText = request.editInstruction ? `${request.editInstruction}\n\nOriginal prompt context:\n${request.prompt}` : request.prompt;
-  const payload = buildGenerationPayload(promptText, request.aspectRatio, request.resolution, request.colorScheme);
 
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
-      'content-type': 'application/json',
+      'Content-Type': 'application/json',
       Authorization: `Bearer ${request.secureSettings.nanobananaApiKey}`,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -105,25 +112,38 @@ export async function generateNanoImage(request: NanoRequest): Promise<NanoRespo
   }
 
   const result = (await response.json()) as {
-    candidates?: Array<{
-      content?: {
-        parts?: Array<{
-          inlineData?: {
-            data?: string;
-          };
-        }>;
-      };
+    data?: Array<{
+      b64_json?: string;
+      url?: string;
     }>;
   };
-  const parts = result.candidates?.[0]?.content?.parts ?? [];
-  const base64 = parts.find((part) => part.inlineData?.data)?.inlineData?.data;
-  if (!base64?.trim()) {
-    throw new Error(`NanoBanana response missing image data: ${JSON.stringify(result).slice(0, 500)}`);
+
+  const dataList = result.data ?? [];
+  if (dataList.length === 0) {
+    throw new Error('NanoBanana 返回数据为空，请检查 API Key 和 Base URL 配置');
+  }
+
+  const imageData = dataList[0];
+  const base64 = imageData.b64_json ?? '';
+  if (!base64.trim()) {
+    // Fallback: try URL if b64_json is empty
+    if (imageData.url) {
+      return {
+        previewDataUrl: imageData.url,
+        finalPromptSent: fullPrompt,
+        endpoint,
+        width,
+        height,
+        durationMs: Math.round(performance.now() - startedAt),
+        fileSizeBytes: 0,
+      };
+    }
+    throw new Error(`NanoBanana 返回的图片数据为空: ${JSON.stringify(result).slice(0, 500)}`);
   }
 
   return {
     previewDataUrl: `data:image/png;base64,${base64}`,
-    finalPromptSent: payload.fullPrompt,
+    finalPromptSent: fullPrompt,
     endpoint,
     width,
     height,

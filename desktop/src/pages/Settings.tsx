@@ -21,6 +21,7 @@ export function Settings() {
   const [claudeModel, setClaudeModel] = useState(() => secureSettings?.claudeModel ?? 'claude-sonnet-4-20250514');
   const [nanobananaApiKey, setNanobananaApiKey] = useState(() => secureSettings?.nanobananaApiKey ?? '');
   const [nanobananaBaseUrl, setNanobananaBaseUrl] = useState(() => secureSettings?.nanobananaBaseUrl ?? 'https://api.keepgo.icu');
+  const [nanobananaModel, setNanobananaModel] = useState(() => secureSettings?.nanobananaModel ?? 'gemini-2.0-flash-exp-image-generation');
   const [ocrServerUrl, setOcrServerUrl] = useState(() => secureSettings?.ocrServerUrl ?? '');
   const [ocrToken, setOcrToken] = useState(() => secureSettings?.ocrToken ?? '');
   const [defaultResolution, setDefaultResolution] = useState<Resolution>(() => publicSettings?.defaultResolution ?? '2K');
@@ -29,7 +30,7 @@ export function Settings() {
   const [message, setMessage] = useState('');
 
   const handleSave = async () => {
-    await saveSecureSettings({ claudeApiKey, claudeBaseUrl, claudeModel, nanobananaApiKey, nanobananaBaseUrl, ocrServerUrl, ocrToken });
+    await saveSecureSettings({ claudeApiKey, claudeBaseUrl, claudeModel, nanobananaApiKey, nanobananaBaseUrl, nanobananaModel, ocrServerUrl, ocrToken });
     await savePublicSettings({ defaultResolution, defaultAspectRatio, defaultColorScheme });
     setMessage('设置已保存');
   };
@@ -55,7 +56,8 @@ export function Settings() {
               <div className="space-y-2"><Label htmlFor="claude-url">Claude Base URL</Label><Input id="claude-url" value={claudeBaseUrl} onChange={(event) => setClaudeBaseUrl(event.target.value)} /></div>
               <div className="space-y-2"><Label htmlFor="claude-model">Claude 模型</Label><Input id="claude-model" value={claudeModel} onChange={(event) => setClaudeModel(event.target.value)} /></div>
               <div className="space-y-2 sm:col-span-2"><Label htmlFor="nano-key">NanoBanana API Key</Label><Input id="nano-key" value={nanobananaApiKey} onChange={(event) => setNanobananaApiKey(event.target.value)} /></div>
-              <div className="space-y-2 sm:col-span-2"><Label htmlFor="nano-url">NanoBanana Base URL</Label><Input id="nano-url" value={nanobananaBaseUrl} onChange={(event) => setNanobananaBaseUrl(event.target.value)} /></div>
+              <div className="space-y-2"><Label htmlFor="nano-url">NanoBanana Base URL</Label><Input id="nano-url" value={nanobananaBaseUrl} onChange={(event) => setNanobananaBaseUrl(event.target.value)} /></div>
+              <div className="space-y-2"><Label htmlFor="nano-model">NanoBanana 模型</Label><Input id="nano-model" value={nanobananaModel} onChange={(event) => setNanobananaModel(event.target.value)} /></div>
               <div className="space-y-2 sm:col-span-2"><Label htmlFor="ocr-url">PaddleOCR Server URL</Label><Input id="ocr-url" value={ocrServerUrl} onChange={(event) => setOcrServerUrl(event.target.value)} /></div>
               <div className="space-y-2 sm:col-span-2"><Label htmlFor="ocr-token">PaddleOCR Token</Label><Textarea id="ocr-token" rows={4} value={ocrToken} onChange={(event) => setOcrToken(event.target.value)} /></div>
             </div>

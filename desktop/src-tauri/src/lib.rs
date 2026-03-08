@@ -10,8 +10,14 @@ struct SecureSettings {
     claude_model: String,
     nanobanana_api_key: String,
     nanobanana_base_url: String,
+    #[serde(default = "default_nanobanana_model")]
+    nanobanana_model: String,
     ocr_server_url: String,
     ocr_token: String,
+}
+
+fn default_nanobanana_model() -> String {
+    "gemini-2.0-flash-exp-image-generation".to_string()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -54,6 +60,7 @@ fn load_secure_settings(app: tauri::AppHandle) -> Result<SecureSettings, String>
             claude_base_url: "https://api.anthropic.com".to_string(),
             claude_model: "claude-sonnet-4-20250514".to_string(),
             nanobanana_base_url: "https://api.keepgo.icu".to_string(),
+            nanobanana_model: default_nanobanana_model(),
             ..SecureSettings::default()
         });
     }

@@ -6,7 +6,6 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Textarea } from '../components/ui/textarea';
 import { useSettingsStore } from '../store/settingsStore';
 
@@ -18,6 +17,7 @@ export function Setup() {
   const [claudeModel, setClaudeModel] = useState('claude-sonnet-4-20250514');
   const [nanobananaApiKey, setNanobananaApiKey] = useState('');
   const [nanobananaBaseUrl, setNanobananaBaseUrl] = useState('https://api.keepgo.icu');
+  const [nanobananaModel, setNanobananaModel] = useState('gemini-2.0-flash-exp-image-generation');
   const [ocrServerUrl, setOcrServerUrl] = useState('');
   const [ocrToken, setOcrToken] = useState('');
   const [error, setError] = useState('');
@@ -30,6 +30,7 @@ export function Setup() {
     setClaudeModel(secureSettings.claudeModel);
     setNanobananaApiKey(secureSettings.nanobananaApiKey);
     setNanobananaBaseUrl(secureSettings.nanobananaBaseUrl);
+    setNanobananaModel(secureSettings.nanobananaModel || 'gemini-2.0-flash-exp-image-generation');
     setOcrServerUrl(secureSettings.ocrServerUrl);
     setOcrToken(secureSettings.ocrToken);
   }, [secureSettings]);
@@ -50,6 +51,7 @@ export function Setup() {
           claudeModel: claudeModel.trim(),
           nanobananaApiKey: nanobananaApiKey.trim(),
           nanobananaBaseUrl: nanobananaBaseUrl.trim(),
+          nanobananaModel: nanobananaModel.trim(),
           ocrServerUrl: ocrServerUrl.trim(),
           ocrToken: ocrToken.trim(),
         },
@@ -88,18 +90,7 @@ export function Setup() {
               <div className="grid gap-4">
                 <div className="space-y-2"><Label htmlFor="claude-key">Claude API Key</Label><Input id="claude-key" value={claudeApiKey} onChange={(event) => setClaudeApiKey(event.target.value)} /></div>
                 <div className="space-y-2"><Label htmlFor="claude-base-url">Claude Base URL</Label><Input id="claude-base-url" value={claudeBaseUrl} onChange={(event) => setClaudeBaseUrl(event.target.value)} /></div>
-                <div className="space-y-2">
-                  <Label>Claude 模型</Label>
-                  <Select value={claudeModel} onValueChange={setClaudeModel}>
-                    <SelectTrigger><SelectValue placeholder="选择 Claude 模型" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="claude-sonnet-4-20250514">claude-sonnet-4-20250514</SelectItem>
-                      <SelectItem value="claude-opus-4-1-20250805">claude-opus-4-1-20250805</SelectItem>
-                      <SelectItem value="claude-sonnet-4-5-20250929">claude-sonnet-4-5-20250929</SelectItem>
-                      <SelectItem value="claude-sonnet-4-20250514">claude-sonnet-4-20250514</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                <div className="space-y-2"><Label htmlFor="claude-model">Claude 模型</Label><Input id="claude-model" value={claudeModel} onChange={(event) => setClaudeModel(event.target.value)} /></div>
               </div>
             </section>
 
@@ -108,6 +99,7 @@ export function Setup() {
               <div className="grid gap-4">
                 <div className="space-y-2"><Label htmlFor="nanobanana-key">NanoBanana API Key</Label><Input id="nanobanana-key" value={nanobananaApiKey} onChange={(event) => setNanobananaApiKey(event.target.value)} /></div>
                 <div className="space-y-2"><Label htmlFor="nanobanana-base-url">NanoBanana Base URL</Label><Input id="nanobanana-base-url" value={nanobananaBaseUrl} onChange={(event) => setNanobananaBaseUrl(event.target.value)} /></div>
+                <div className="space-y-2"><Label htmlFor="nanobanana-model">NanoBanana 模型</Label><Input id="nanobanana-model" value={nanobananaModel} onChange={(event) => setNanobananaModel(event.target.value)} /></div>
               </div>
             </section>
 

@@ -154,6 +154,7 @@ export interface SecureSettings {
   claudeModel: string;
   nanobananaApiKey: string;
   nanobananaBaseUrl: string;
+  nanobananaModel: string;
   ocrServerUrl: string;
   ocrToken: string;
 }
