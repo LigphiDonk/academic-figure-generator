@@ -111,7 +111,7 @@ save_png(32, icon_dir / "32x32.png")
 save_png(128, icon_dir / "128x128.png")
 save_png(256, icon_dir / "128x128@2x.png")
 save_png(1024, icon_dir / "icon.png")
-render_square(1024).save(icon_dir / "icon.tiff", format="TIFF")
+render_square(1024).save(icon_dir / "icon.icns", format="ICNS")
 
 render_square(256).save(
     icon_dir / "icon.ico",
@@ -119,10 +119,5 @@ render_square(256).save(
     sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
 )
 '
-
-if ! iconutil -c icns "${ICONSET_DIR}" -o "${ICON_DIR}/icon.icns"; then
-  echo "iconutil failed, falling back to tiff2icns" >&2
-  tiff2icns "${ICON_DIR}/icon.tiff" "${ICON_DIR}/icon.icns"
-fi
 
 echo "Generated Tauri icons from ${SOURCE_IMAGE}"
