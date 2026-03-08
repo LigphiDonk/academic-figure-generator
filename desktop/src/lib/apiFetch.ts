@@ -13,7 +13,18 @@ let _tauriFetchLoaded = false;
 
 /** Detect whether we're running inside a Tauri v2 app. */
 function isTauri(): boolean {
-    return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    return typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || typeof window.__TAURI__?.core?.invoke === 'function');
+}
+
+function formatFetchTarget(input: string | URL | Request): string {
+    if (typeof input === 'string') return input;
+    if (input instanceof URL) return input.toString();
+    return input.url;
+}
+
+function formatFetchError(error: unknown): string {
+    if (error instanceof Error && error.message.trim()) return error.message;
+    return String(error);
 }
 
 async function loadTauriFetch(): Promise<FetchFn | null> {
@@ -30,7 +41,8 @@ async function loadTauriFetch(): Promise<FetchFn | null> {
         if (typeof mod.fetch === 'function') {
             _tauriFetch = mod.fetch as FetchFn;
         }
-    } catch {
+    } catch (error) {
+        console.error('[apiFetch] Failed to load Tauri HTTP plugin:', error);
         _tauriFetch = null;
     }
     return _tauriFetch;
@@ -38,28 +50,31 @@ async function loadTauriFetch(): Promise<FetchFn | null> {
 
 /**
  * Drop-in replacement for `fetch()` that works without CORS issues in Tauri.
- * Uses the native Tauri HTTP plugin when available, otherwise falls back to
- * the browser's built-in fetch.
- *
- * If the Tauri fetch throws (e.g. plugin not loaded), it will fall back to
- * the browser fetch automatically.
+ * Uses the native Tauri HTTP plugin in desktop runtime so API calls are not
+ * affected by browser CORS, and uses the browser's built-in fetch elsewhere.
  */
 export async function apiFetch(
     input: string | URL | Request,
     init?: RequestInit,
 ): Promise<Response> {
-    const tauriFetch = await loadTauriFetch();
-
-    if (tauriFetch) {
+    if (isTauri()) {
+        const tauriFetch = await loadTauriFetch();
+        if (!tauriFetch) {
+            throw new Error(
+                'Tauri HTTP 插件不可用，无法在桌面版中发起跨域 API 请求。请检查插件是否已注册以及打包权限是否正确配置。',
+            );
+        }
         try {
             return await tauriFetch(input, init);
         } catch (tauriError) {
-            // If Tauri fetch fails (e.g. plugin not available at runtime),
-            // log and fall back to native fetch
-            console.warn('[apiFetch] Tauri fetch failed, falling back to native fetch:', tauriError);
+            const target = formatFetchTarget(input);
+            const detail = formatFetchError(tauriError);
+            console.error('[apiFetch] Tauri fetch failed:', { target, detail, tauriError });
+            throw new Error(
+                `Tauri 原生 HTTP 请求失败：${detail}（${target}）。这通常表示该 URL 未被 Tauri capability 放行，或代理/TLS 配置有问题。`,
+            );
         }
     }
 
-    // Fallback: native browser fetch
     return globalThis.fetch(input, init);
 }
