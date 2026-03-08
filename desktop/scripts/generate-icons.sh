@@ -12,6 +12,16 @@ PUBLIC_LOGO_PNG="${ROOT_DIR}/desktop/public/logo.png"
 PUBLIC_LOGO_JPG="${ROOT_DIR}/desktop/public/logo.jpg"
 PYTHON_BIN=""
 
+required_paths=(
+  "${ICON_DIR}/32x32.png"
+  "${ICON_DIR}/128x128.png"
+  "${ICON_DIR}/icon.png"
+  "${ICON_DIR}/icon.ico"
+  "${ICON_DIR}/icon.icns"
+  "${PUBLIC_LOGO_PNG}"
+  "${PUBLIC_LOGO_JPG}"
+)
+
 if [[ -f "${SOURCE_IMAGE_PNG}" ]]; then
   SOURCE_IMAGE="${SOURCE_IMAGE_PNG}"
 elif [[ -f "${SOURCE_IMAGE_JPG}" ]]; then
@@ -28,13 +38,27 @@ for candidate in "$(command -v python3 2>/dev/null || true)" "/opt/homebrew/Cask
   fi
 done
 
-if [[ -z "${PYTHON_BIN}" ]]; then
-  echo "A Python interpreter with Pillow is required to generate icons." >&2
-  exit 1
-fi
-
 mkdir -p "${ICON_DIR}"
 mkdir -p "$(dirname "${PUBLIC_LOGO_PNG}")"
+
+if [[ -z "${PYTHON_BIN}" ]]; then
+  missing_paths=()
+  for path in "${required_paths[@]}"; do
+    if [[ ! -f "${path}" ]]; then
+      missing_paths+=("${path}")
+    fi
+  done
+
+  if (( ${#missing_paths[@]} == 0 )); then
+    echo "Pillow not available; reusing checked-in icon assets." >&2
+    exit 0
+  fi
+
+  echo "A Python interpreter with Pillow is required to generate icons." >&2
+  printf 'Missing generated assets:\n' >&2
+  printf '  %s\n' "${missing_paths[@]}" >&2
+  exit 1
+fi
 
 "${PYTHON_BIN}" -c '
 from pathlib import Path
