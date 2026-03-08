@@ -66,6 +66,7 @@ export interface DocumentRecord {
   wordCount?: number;
   parsedText?: string;
   sections: DocumentSection[];
+  pageTexts?: string[];
   ocrApplied: boolean;
   parseStatus: ParseStatus;
   parseError?: string;

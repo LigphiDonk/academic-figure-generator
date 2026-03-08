@@ -23,7 +23,7 @@ export class ProjectService {
     return project ? hydrateProject(project, snapshot) : null;
   }
 
-  async createProject(input: { name: string; description?: string; paperField?: string; colorScheme: string }): Promise<Project> {
+  async createProject(input: { name: string; description?: string; paperField?: string; colorScheme?: string }): Promise<Project> {
     return mutateSnapshot((snapshot) => {
       const timestamp = isoNow();
       const project: Project = {
@@ -31,7 +31,7 @@ export class ProjectService {
         name: input.name,
         description: input.description,
         paperField: input.paperField,
-        colorScheme: input.colorScheme,
+        colorScheme: input.colorScheme ?? 'okabe-ito',
         status: 'active',
         createdAt: timestamp,
         updatedAt: timestamp,

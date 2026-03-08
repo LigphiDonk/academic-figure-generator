@@ -59,7 +59,8 @@ export class PromptService {
   async generatePrompts(input: {
     projectId: string;
     documentId?: string;
-    selectedSectionTitles: string[];
+    selectedSectionTitles?: string[];
+    pageRange?: [number, number];
     figureTypes: FigureType[];
     customRequest?: string;
     maxCount: number;
@@ -69,11 +70,42 @@ export class PromptService {
     if (!project) throw new Error('项目不存在');
 
     const document = input.documentId ? await documentService.getDocument(input.documentId) : null;
-    const scopedSections = (document?.sections ?? []).filter(
-      (section) => input.selectedSectionTitles.length === 0 || input.selectedSectionTitles.includes(section.title),
-    );
+
+    // Build scoped sections from page range or section titles
+    let scopedSections: Array<{ title: string; content: string; level: number }> = [];
+
+    if (input.pageRange && document) {
+      const [startPage, endPage] = input.pageRange;
+      const pageTexts = document.pageTexts ?? [];
+      if (pageTexts.length > 0) {
+        const selectedPages = pageTexts.slice(startPage, endPage + 1).filter(Boolean);
+        const combinedText = selectedPages.join('\n\n');
+        scopedSections = [{
+          title: `第 ${startPage + 1} – ${endPage + 1} 页`,
+          content: combinedText,
+          level: 1,
+        }];
+      } else if (document.parsedText) {
+        // Fallback: split parsedText roughly by page count
+        const totalChars = document.parsedText.length;
+        const totalPages = document.pageCount ?? 1;
+        const charsPerPage = Math.ceil(totalChars / totalPages);
+        const start = startPage * charsPerPage;
+        const end = Math.min((endPage + 1) * charsPerPage, totalChars);
+        scopedSections = [{
+          title: `第 ${startPage + 1} – ${endPage + 1} 页`,
+          content: document.parsedText.slice(start, end),
+          level: 1,
+        }];
+      }
+    } else {
+      scopedSections = (document?.sections ?? []).filter(
+        (section) => !input.selectedSectionTitles?.length || input.selectedSectionTitles.includes(section.title),
+      );
+    }
+
     if (!input.templateMode && scopedSections.length === 0) {
-      throw new Error('请先选择至少一个文档章节，或开启模板模式');
+      throw new Error('请先选择页码范围或文档章节，或开启模板模式');
     }
 
     const timestamp = isoNow();

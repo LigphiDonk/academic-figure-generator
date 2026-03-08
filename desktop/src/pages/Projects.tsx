@@ -7,29 +7,23 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { formatDate } from '../lib/utils';
-import { colorSchemeService } from '../services/colorSchemeService';
 import { projectService } from '../services/projectService';
 import { useProjectStore } from '../store/projectStore';
-import type { ColorScheme } from '../types/models';
 
 export function Projects() {
   const navigate = useNavigate();
   const { projects, isLoading, refreshProjects } = useProjectStore();
-  const [colorSchemes, setColorSchemes] = useState<ColorScheme[]>([]);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [paperField, setPaperField] = useState('');
-  const [colorScheme, setColorScheme] = useState('okabe-ito');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     void refreshProjects();
-    void colorSchemeService.listColorSchemes().then(setColorSchemes);
   }, [refreshProjects]);
 
   const filteredProjects = useMemo(
@@ -52,13 +46,11 @@ export function Projects() {
         name: name.trim(),
         description: description.trim() || undefined,
         paperField: paperField.trim() || undefined,
-        colorScheme,
       });
       await refreshProjects();
       setName('');
       setDescription('');
       setPaperField('');
-      setColorScheme('okabe-ito');
       setOpen(false);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : '创建项目失败');
@@ -103,13 +95,6 @@ export function Projects() {
               <div className="space-y-2"><Label htmlFor="project-name">项目名称</Label><Input id="project-name" value={name} onChange={(event) => setName(event.target.value)} /></div>
               <div className="space-y-2"><Label htmlFor="project-description">描述</Label><Input id="project-description" value={description} onChange={(event) => setDescription(event.target.value)} /></div>
               <div className="space-y-2"><Label htmlFor="project-field">研究领域</Label><Input id="project-field" value={paperField} onChange={(event) => setPaperField(event.target.value)} /></div>
-              <div className="space-y-2">
-                <Label>配色方案</Label>
-                <Select value={colorScheme} onValueChange={setColorScheme}>
-                  <SelectTrigger><SelectValue placeholder="选择配色方案" /></SelectTrigger>
-                  <SelectContent>{colorSchemes.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setOpen(false)}>取消</Button>

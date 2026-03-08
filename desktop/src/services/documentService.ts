@@ -391,7 +391,7 @@ async function readStreamViaReader<T>(stream: ReadableStream<T>): Promise<T[]> {
   return chunks;
 }
 
-async function parsePdfFile(file: File): Promise<{ parsedText: string; sections: DocumentSection[] }> {
+async function parsePdfFile(file: File): Promise<{ parsedText: string; sections: DocumentSection[]; pageTexts: string[] }> {
   try {
     const pdfjs = await loadPdfJs();
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -413,7 +413,7 @@ async function parsePdfFile(file: File): Promise<{ parsedText: string; sections:
       }),
     );
     const parsedText = pages.filter(Boolean).join('\n\n');
-    return { parsedText, sections: splitTextIntoSections(parsedText) };
+    return { parsedText, sections: splitTextIntoSections(parsedText), pageTexts: pages };
   } catch (error) {
     console.error('Failed to parse PDF document', error);
     const message = error instanceof Error ? error.message : '未知错误';
@@ -451,11 +451,15 @@ export class DocumentService {
         let sections: DocumentSection[] = [];
         let parseStatus: DocumentRecord['parseStatus'] = 'completed';
         let parseError: string | undefined;
+        let pageTexts: string[] | undefined;
         if (fileType === 'txt') {
           parsedText = await file.text();
           sections = splitTextIntoSections(parsedText);
         } else if (fileType === 'pdf') {
-          ({ parsedText, sections } = await parsePdfFile(file));
+          const result = await parsePdfFile(file);
+          parsedText = result.parsedText;
+          sections = result.sections;
+          pageTexts = result.pageTexts;
         } else if (fileType === 'docx') {
           ({ parsedText, sections } = await parseDocxFile(file));
         } else {
@@ -476,6 +480,7 @@ export class DocumentService {
           wordCount: wordCount(parsedText),
           parsedText: parsedText || undefined,
           sections,
+          pageTexts,
           ocrApplied: false,
           parseStatus,
           parseError,
