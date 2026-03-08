@@ -175,30 +175,44 @@ function normalizeClaudeApiUrl(baseOrFull?: string): string {
 export async function generateClaudePrompts(request: ClaudeRequest): Promise<ClaudeResponse> {
   const endpoint = normalizeClaudeApiUrl(request.secureSettings.claudeBaseUrl);
   const startedAt = performance.now();
-  const response = await apiFetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': request.secureSettings.claudeApiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: request.secureSettings.claudeModel,
-      max_tokens: 8192,
-      system: request.templateMode ? TEMPLATE_FIGURE_SYSTEM_PROMPT : ACADEMIC_FIGURE_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: request.templateMode ? buildTemplateUserPrompt(request) : buildUserPrompt(request) }],
-    }),
-  });
+
+  let response: Response;
+  try {
+    response = await apiFetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': request.secureSettings.claudeApiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: request.secureSettings.claudeModel,
+        max_tokens: 8192,
+        system: request.templateMode ? TEMPLATE_FIGURE_SYSTEM_PROMPT : ACADEMIC_FIGURE_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: request.templateMode ? buildTemplateUserPrompt(request) : buildUserPrompt(request) }],
+      }),
+    });
+  } catch (fetchError) {
+    const msg = fetchError instanceof Error ? fetchError.message : String(fetchError);
+    console.error('[claudeClient] fetch failed:', fetchError);
+    throw new Error(`Claude API 网络请求失败：${msg}`);
+  }
 
   if (!response.ok) {
-    const detail = await response.text();
+    const detail = await response.text().catch(() => '(无法读取响应)');
     throw new Error(`Claude API 请求失败 (${response.status})：${detail.slice(0, 300)}`);
   }
 
-  const result = (await response.json()) as {
+  let result: {
     content?: Array<{ type: string; text?: string }>;
     usage?: { input_tokens?: number; output_tokens?: number };
   };
+  try {
+    result = (await response.json()) as typeof result;
+  } catch (jsonError) {
+    console.error('[claudeClient] JSON parse failed:', jsonError);
+    throw new Error('Claude API 响应解析失败：返回内容不是有效的 JSON');
+  }
 
   const text = (result.content ?? []).filter((item) => item.type === 'text').map((item) => item.text ?? '').join('');
 

@@ -80,32 +80,47 @@ export class PromptService {
       if (pageTexts.length > 0) {
         const selectedPages = pageTexts.slice(startPage, endPage + 1).filter(Boolean);
         const combinedText = selectedPages.join('\n\n');
-        scopedSections = [{
-          title: `第 ${startPage + 1} – ${endPage + 1} 页`,
-          content: combinedText,
-          level: 1,
-        }];
-      } else if (document.parsedText) {
+        if (combinedText.trim()) {
+          scopedSections = [{
+            title: `第 ${startPage + 1} – ${endPage + 1} 页`,
+            content: combinedText,
+            level: 1,
+          }];
+        }
+      } else if (document.parsedText && document.parsedText.trim()) {
         // Fallback: split parsedText roughly by page count
         const totalChars = document.parsedText.length;
         const totalPages = document.pageCount ?? 1;
         const charsPerPage = Math.ceil(totalChars / totalPages);
         const start = startPage * charsPerPage;
         const end = Math.min((endPage + 1) * charsPerPage, totalChars);
-        scopedSections = [{
-          title: `第 ${startPage + 1} – ${endPage + 1} 页`,
-          content: document.parsedText.slice(start, end),
-          level: 1,
-        }];
+        const sliced = document.parsedText.slice(start, end);
+        if (sliced.trim()) {
+          scopedSections = [{
+            title: `第 ${startPage + 1} – ${endPage + 1} 页`,
+            content: sliced,
+            level: 1,
+          }];
+        }
       }
-    } else {
-      scopedSections = (document?.sections ?? []).filter(
+
+      // Fallback: if page range extraction produced nothing, use all sections
+      if (scopedSections.length === 0 && document.sections.length > 0) {
+        scopedSections = document.sections;
+      }
+    } else if (document) {
+      // No page range: use section-based fallback
+      scopedSections = (document.sections ?? []).filter(
         (section) => !input.selectedSectionTitles?.length || input.selectedSectionTitles.includes(section.title),
       );
+      // If no sections matched, use all sections
+      if (scopedSections.length === 0 && document.sections.length > 0) {
+        scopedSections = document.sections;
+      }
     }
 
     if (!input.templateMode && scopedSections.length === 0) {
-      throw new Error('请先选择页码范围或文档章节，或开启模板模式');
+      throw new Error('文档内容为空，无法生成提示词。请确保文档已成功解析，或使用模板模式。');
     }
 
     const timestamp = isoNow();

@@ -6,16 +6,30 @@
  * outside Tauri (e.g. plain browser dev mode).
  */
 
-let _tauriFetch: typeof globalThis.fetch | null = null;
+type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+let _tauriFetch: FetchFn | null = null;
 let _tauriFetchLoaded = false;
 
-async function loadTauriFetch(): Promise<typeof globalThis.fetch | null> {
+/** Detect whether we're running inside a Tauri v2 app. */
+function isTauri(): boolean {
+    return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
+
+async function loadTauriFetch(): Promise<FetchFn | null> {
     if (_tauriFetchLoaded) return _tauriFetch;
     _tauriFetchLoaded = true;
+
+    if (!isTauri()) {
+        _tauriFetch = null;
+        return null;
+    }
+
     try {
-        // Dynamic import so it doesn't break in non-Tauri environments
         const mod = await import('@tauri-apps/plugin-http');
-        _tauriFetch = mod.fetch as typeof globalThis.fetch;
+        if (typeof mod.fetch === 'function') {
+            _tauriFetch = mod.fetch as FetchFn;
+        }
     } catch {
         _tauriFetch = null;
     }
@@ -26,14 +40,26 @@ async function loadTauriFetch(): Promise<typeof globalThis.fetch | null> {
  * Drop-in replacement for `fetch()` that works without CORS issues in Tauri.
  * Uses the native Tauri HTTP plugin when available, otherwise falls back to
  * the browser's built-in fetch.
+ *
+ * If the Tauri fetch throws (e.g. plugin not loaded), it will fall back to
+ * the browser fetch automatically.
  */
 export async function apiFetch(
     input: string | URL | Request,
     init?: RequestInit,
 ): Promise<Response> {
     const tauriFetch = await loadTauriFetch();
+
     if (tauriFetch) {
-        return tauriFetch(input, init);
+        try {
+            return await tauriFetch(input, init);
+        } catch (tauriError) {
+            // If Tauri fetch fails (e.g. plugin not available at runtime),
+            // log and fall back to native fetch
+            console.warn('[apiFetch] Tauri fetch failed, falling back to native fetch:', tauriError);
+        }
     }
+
+    // Fallback: native browser fetch
     return globalThis.fetch(input, init);
 }
