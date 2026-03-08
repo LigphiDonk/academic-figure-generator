@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "icons:sync": "./scripts/generate-icons.sh",
+    "icons:sync": "node ./scripts/icons-sync.mjs",
     "tauri:dev": "npm run icons:sync && tauri dev",
     "tauri:build": "npm run icons:sync && tauri build"
   },
