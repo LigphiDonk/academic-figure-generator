@@ -38,6 +38,21 @@ type MapWithUpsert<K, V> = Map<K, V> & {
   getOrInsertComputed?: (key: K, compute: (key: K) => V) => V;
 };
 
+type WeakMapWithUpsert<K extends object, V> = WeakMap<K, V> & {
+  getOrInsert?: (key: K, value: V) => V;
+  getOrInsertComputed?: (key: K, compute: (key: K) => V) => V;
+};
+
+type UrlCtorWithCompat = typeof URL & {
+  parse?: (url: string, base?: string | URL) => URL | null;
+  canParse?: (url: string, base?: string | URL) => boolean;
+};
+
+type ArrayPrototypeWithCompat = unknown[] & {
+  at?: (index: number) => unknown;
+  findLast?: (predicate: (value: unknown, index: number, array: unknown[]) => boolean, thisArg?: unknown) => unknown;
+};
+
 let pdfjsModulePromise: Promise<PdfJsModule> | undefined;
 let pdfjsWorkerPort: Worker | undefined;
 let pdfjsWorkerBootstrapUrl: string | undefined;
@@ -89,9 +104,90 @@ function ensureMapUpsert(): void {
   });
 }
 
+function ensureWeakMapUpsert(): void {
+  const weakMapProto = WeakMap.prototype as unknown as WeakMapWithUpsert<object, unknown>;
+  if (typeof weakMapProto.getOrInsert !== 'function') {
+    Object.defineProperty(weakMapProto, 'getOrInsert', {
+      configurable: true,
+      writable: true,
+      value(this: WeakMap<object, unknown>, key: object, value: unknown) {
+        if (this.has(key)) return this.get(key);
+        this.set(key, value);
+        return value;
+      },
+    });
+  }
+  if (typeof weakMapProto.getOrInsertComputed === 'function') return;
+  Object.defineProperty(weakMapProto, 'getOrInsertComputed', {
+    configurable: true,
+    writable: true,
+    value(this: WeakMap<object, unknown>, key: object, compute: (key: object) => unknown) {
+      if (this.has(key)) return this.get(key);
+      const value = compute(key);
+      this.set(key, value);
+      return value;
+    },
+  });
+}
+
+function ensureArrayCompat(): void {
+  const arrayProto = Array.prototype as unknown as ArrayPrototypeWithCompat;
+  if (typeof arrayProto.at !== 'function') {
+    Object.defineProperty(arrayProto, 'at', {
+      configurable: true,
+      writable: true,
+      value(this: unknown[], index: number) {
+        const length = this.length >>> 0;
+        let relativeIndex = Number(index) || 0;
+        if (relativeIndex < 0) relativeIndex += length;
+        if (relativeIndex < 0 || relativeIndex >= length) return undefined;
+        return this[relativeIndex];
+      },
+    });
+  }
+  if (typeof arrayProto.findLast === 'function') return;
+  Object.defineProperty(arrayProto, 'findLast', {
+    configurable: true,
+    writable: true,
+    value(this: unknown[], predicate: (value: unknown, index: number, array: unknown[]) => boolean, thisArg?: unknown) {
+      if (typeof predicate !== 'function') throw new TypeError('predicate must be a function');
+      for (let index = this.length - 1; index >= 0; index -= 1) {
+        const value = this[index];
+        if (predicate.call(thisArg, value, index, this)) return value;
+      }
+      return undefined;
+    },
+  });
+}
+
+function ensureUrlCompat(): void {
+  const urlCtor = URL as UrlCtorWithCompat;
+  if (typeof urlCtor.parse !== 'function') {
+    urlCtor.parse = (url: string, base?: string | URL) => {
+      try {
+        return new URL(url, base);
+      } catch {
+        return null;
+      }
+    };
+  }
+  if (typeof urlCtor.canParse === 'function') return;
+  urlCtor.canParse = (url: string, base?: string | URL) => {
+    try {
+      new URL(url, base);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+}
+
 function ensurePdfJsCompat(): void {
   ensurePromiseWithResolvers();
   ensureMapUpsert();
+  ensureWeakMapUpsert();
+  ensureArrayCompat();
+  ensureUrlCompat();
 }
 
 function createPdfJsWorkerBootstrapSource(workerUrl: string): string {
@@ -130,6 +226,86 @@ if (typeof mapProto.getOrInsertComputed !== 'function') {
       const value = compute(key);
       this.set(key, value);
       return value;
+    },
+  });
+}
+const weakMapProto = WeakMap.prototype;
+if (typeof weakMapProto.getOrInsert !== 'function') {
+  Object.defineProperty(weakMapProto, 'getOrInsert', {
+    configurable: true,
+    writable: true,
+    value(key, value) {
+      if (this.has(key)) return this.get(key);
+      this.set(key, value);
+      return value;
+    },
+  });
+}
+if (typeof weakMapProto.getOrInsertComputed !== 'function') {
+  Object.defineProperty(weakMapProto, 'getOrInsertComputed', {
+    configurable: true,
+    writable: true,
+    value(key, compute) {
+      if (this.has(key)) return this.get(key);
+      const value = compute(key);
+      this.set(key, value);
+      return value;
+    },
+  });
+}
+if (typeof Array.prototype.at !== 'function') {
+  Object.defineProperty(Array.prototype, 'at', {
+    configurable: true,
+    writable: true,
+    value(index) {
+      const length = this.length >>> 0;
+      let relativeIndex = Number(index) || 0;
+      if (relativeIndex < 0) relativeIndex += length;
+      if (relativeIndex < 0 || relativeIndex >= length) return undefined;
+      return this[relativeIndex];
+    },
+  });
+}
+if (typeof Array.prototype.findLast !== 'function') {
+  Object.defineProperty(Array.prototype, 'findLast', {
+    configurable: true,
+    writable: true,
+    value(predicate, thisArg) {
+      if (typeof predicate !== 'function') {
+        throw new TypeError('predicate must be a function');
+      }
+      for (let index = this.length - 1; index >= 0; index -= 1) {
+        const value = this[index];
+        if (predicate.call(thisArg, value, index, this)) return value;
+      }
+      return undefined;
+    },
+  });
+}
+if (typeof URL.parse !== 'function') {
+  Object.defineProperty(URL, 'parse', {
+    configurable: true,
+    writable: true,
+    value(url, base) {
+      try {
+        return new URL(url, base);
+      } catch {
+        return null;
+      }
+    },
+  });
+}
+if (typeof URL.canParse !== 'function') {
+  Object.defineProperty(URL, 'canParse', {
+    configurable: true,
+    writable: true,
+    value(url, base) {
+      try {
+        new URL(url, base);
+        return true;
+      } catch {
+        return false;
+      }
     },
   });
 }
