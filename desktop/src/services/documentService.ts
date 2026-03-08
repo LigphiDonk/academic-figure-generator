@@ -14,6 +14,7 @@ type PdfJsModule = {
       numPages: number;
       getPage: (pageNumber: number) => Promise<{
         getTextContent: () => Promise<{ items: unknown[] }>;
+        streamTextContent: (params?: Record<string, unknown>) => ReadableStream<{ items: unknown[]; styles: unknown; lang: string | null }>;
       }>;
     }>;
   };
@@ -379,6 +380,17 @@ function splitTextIntoSections(text: string): DocumentSection[] {
   });
 }
 
+async function readStreamViaReader<T>(stream: ReadableStream<T>): Promise<T[]> {
+  const reader = stream.getReader();
+  const chunks: T[] = [];
+  for (; ;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  return chunks;
+}
+
 async function parsePdfFile(file: File): Promise<{ parsedText: string; sections: DocumentSection[] }> {
   try {
     const pdfjs = await loadPdfJs();
@@ -387,8 +399,17 @@ async function parsePdfFile(file: File): Promise<{ parsedText: string; sections:
     const pages = await Promise.all(
       Array.from({ length: pdf.numPages }, async (_, index) => {
         const page = await pdf.getPage(index + 1);
-        const content = await page.getTextContent();
-        return content.items.map(getPdfTextItemString).join(' ').trim();
+        // Use streamTextContent + manual reader instead of getTextContent()
+        // because getTextContent() internally uses `for await...of` on a
+        // ReadableStream, and Tauri's WebKit webview does not support
+        // ReadableStream[Symbol.asyncIterator].
+        const stream = page.streamTextContent();
+        const chunks = await readStreamViaReader(stream);
+        const allItems: unknown[] = [];
+        for (const chunk of chunks) {
+          if (chunk?.items) allItems.push(...chunk.items);
+        }
+        return allItems.map(getPdfTextItemString).join(' ').trim();
       }),
     );
     const parsedText = pages.filter(Boolean).join('\n\n');
