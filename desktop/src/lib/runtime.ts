@@ -6,6 +6,10 @@ type TauriCore = {
   invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
 };
 
+interface SavedFileResult {
+  path: string;
+}
+
 declare global {
   interface Window {
     __TAURI__?: {
@@ -53,4 +57,19 @@ export async function openRepositoryUrl(): Promise<void> {
   }
 
   window.open(REPO_URL, '_blank', 'noopener,noreferrer');
+}
+
+export async function saveImageToDownloads(fileName: string, dataUrl: string): Promise<string | undefined> {
+  if (isTauriRuntime()) {
+    const result = await invokeCommand<SavedFileResult>('save_image_to_downloads', { fileName, dataUrl });
+    return result?.path;
+  }
+
+  const link = document.createElement('a');
+  link.href = dataUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  return undefined;
 }

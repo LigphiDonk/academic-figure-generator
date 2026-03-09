@@ -8,6 +8,7 @@ import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Textarea } from '../components/ui/textarea';
 import { ASPECT_RATIO_OPTIONS, RESOLUTION_OPTIONS } from '../lib/catalog';
+import { saveImageToDownloads } from '../lib/runtime';
 import { formatDate } from '../lib/utils';
 import { imageService } from '../services/imageService';
 import { useSettingsStore } from '../store/settingsStore';
@@ -22,6 +23,7 @@ export function Generate() {
   const [editInstruction, setEditInstruction] = useState('');
   const [history, setHistory] = useState<ImageRecord[]>([]);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [isBusy, setIsBusy] = useState(false);
 
   const loadHistory = async () => setHistory(await imageService.listImages());
@@ -29,6 +31,7 @@ export function Generate() {
 
   const handleGenerate = async () => {
     setError('');
+    setSuccess('');
     if (!prompt.trim()) return setError('请输入用于生成图片的 Prompt');
     setIsBusy(true);
     try {
@@ -51,6 +54,18 @@ export function Generate() {
     }
   };
 
+  const handleDownload = async (image: ImageRecord) => {
+    if (!image.previewDataUrl) return;
+    setError('');
+    setSuccess('');
+    try {
+      const savedPath = await saveImageToDownloads(`direct-generate-${image.id}.png`, image.previewDataUrl);
+      setSuccess(savedPath ? `图片已下载到：${savedPath}` : '图片下载已触发，请查看系统默认下载目录');
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : '图片下载失败');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <Card className="rounded-[28px] border-white/70 bg-white/85 shadow-xl shadow-slate-200/60">
@@ -58,6 +73,7 @@ export function Generate() {
         <CardContent className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
           <div className="space-y-4">
             {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
+            {success ? <Alert><AlertDescription>{success}</AlertDescription></Alert> : null}
             <div className="space-y-2"><Label htmlFor="direct-prompt">Prompt</Label><Textarea id="direct-prompt" rows={10} value={prompt} onChange={(event) => setPrompt(event.target.value)} /></div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2"><Label>分辨率</Label><Select value={resolution} onValueChange={(value) => setResolution(value as Resolution)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{RESOLUTION_OPTIONS.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></div>
@@ -84,7 +100,7 @@ export function Generate() {
             <CardContent className="space-y-4 p-5">
               <div className="text-xs text-slate-500">{image.resolution} · {image.aspectRatio} · {formatDate(image.createdAt)}</div>
               <p className="text-sm leading-6 text-slate-600">{(image.finalPromptSent ?? '').slice(0, 140)}{(image.finalPromptSent ?? '').length > 140 ? '...' : ''}</p>
-              {image.previewDataUrl ? <Button asChild variant="outline"><a href={image.previewDataUrl} download={`direct-generate-${image.id}.png`}><Download className="mr-2 h-4 w-4" />下载</a></Button> : null}
+              {image.previewDataUrl ? <Button variant="outline" onClick={() => void handleDownload(image)}><Download className="mr-2 h-4 w-4" />下载</Button> : null}
             </CardContent>
           </Card>
         ))}

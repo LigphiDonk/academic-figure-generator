@@ -10,6 +10,7 @@ import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Textarea } from '../components/ui/textarea';
 import { ASPECT_RATIO_OPTIONS, FIGURE_TYPE_OPTIONS, RESOLUTION_OPTIONS } from '../lib/catalog';
+import { saveImageToDownloads } from '../lib/runtime';
 import { formatDate, formatFileSize } from '../lib/utils';
 import { colorSchemeService } from '../services/colorSchemeService';
 import { documentService } from '../services/documentService';
@@ -212,6 +213,18 @@ export function ProjectWorkspace() {
       setError(generationError instanceof Error ? generationError.message : '图片生成失败');
     } finally {
       setBusyIds((prev) => { const next = new Set(prev); next.delete(promptId); return next; });
+    }
+  };
+
+  const handleDownloadImage = async (image: ImageRecord, fileName: string) => {
+    if (!image.previewDataUrl) return;
+    setError('');
+    setSuccess('');
+    try {
+      const savedPath = await saveImageToDownloads(fileName, image.previewDataUrl);
+      setSuccess(savedPath ? `图片已下载到：${savedPath}` : '图片下载已触发，请查看系统默认下载目录');
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : '图片下载失败');
     }
   };
 
@@ -449,8 +462,8 @@ export function ProjectWorkspace() {
                       <ImagePlus className="mr-2 h-4 w-4" />{busyIds.has(prompt.id) ? '生成中...' : '生成图片'}
                     </Button>
                     {latestImage?.previewDataUrl ? (
-                      <Button asChild variant="outline" size="sm">
-                        <a href={latestImage.previewDataUrl} download={`academic-figure-${latestImage.id}.png`}><Download className="mr-2 h-4 w-4" />下载</a>
+                      <Button variant="outline" size="sm" onClick={() => void handleDownloadImage(latestImage, `academic-figure-${latestImage.id}.png`)}>
+                        <Download className="mr-2 h-4 w-4" />下载
                       </Button>
                     ) : null}
                     <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" onClick={() => void promptService.deletePrompt(prompt.id).then(loadWorkspace)}><Trash2 className="mr-2 h-4 w-4" />删除</Button>
@@ -466,7 +479,9 @@ export function ProjectWorkspace() {
                             {img.previewDataUrl ? <img src={img.previewDataUrl} alt={img.id} className="aspect-[4/3] w-full rounded-lg object-cover" /> : null}
                             <div className="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
                               {img.previewDataUrl ? (
-                                <a href={img.previewDataUrl} download={`figure-${img.id}.png`} className="text-white text-xs"><Download className="h-4 w-4" /></a>
+                                <button type="button" onClick={() => void handleDownloadImage(img, `figure-${img.id}.png`)} className="text-white text-xs">
+                                  <Download className="h-4 w-4" />
+                                </button>
                               ) : null}
                             </div>
                             <div className="mt-1 text-[10px] text-slate-400">{img.resolution} · {img.aspectRatio}</div>
