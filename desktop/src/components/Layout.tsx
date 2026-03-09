@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
-import { Activity, FolderKanban, Menu, Palette, Settings, Sparkles, Workflow, X } from 'lucide-react';
+import { Activity, ExternalLink, FolderKanban, Github, Menu, Palette, Settings, Sparkles, Star, Workflow, X } from 'lucide-react';
 import { useSettingsStore } from '../store/settingsStore';
 import { cn } from '../lib/utils';
+
+const REPO_URL = 'https://github.com/LigphiDonk/academic-figure-generator';
 
 const navItems = [
   { label: '项目列表', to: '/projects', icon: FolderKanban },
@@ -54,6 +56,16 @@ export function Layout() {
         <div className="mt-2">配色：{settings?.defaultColorScheme ?? 'okabe-ito'}</div>
         <div>分辨率：{settings?.defaultResolution ?? '2K'}</div>
         <div>比例：{settings?.defaultAspectRatio ?? '4:3'}</div>
+        <a
+          href={REPO_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-4 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/85 px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
+        >
+          <Github className="h-4 w-4 text-slate-900" />
+          查看仓库并点个 Star
+          <ExternalLink className="ml-auto h-4 w-4 text-slate-400" />
+        </a>
       </div>
     </div>
   );
@@ -85,7 +97,19 @@ export function Layout() {
                 <div className="text-base font-semibold text-slate-900">本地科研配图工作台</div>
               </div>
             </div>
-            <div className="rounded-full border border-white/60 bg-white/80 px-3 py-1.5 text-xs text-slate-500 shadow-sm">Desktop Dev Branch</div>
+            <div className="flex items-center gap-2">
+              <a
+                href={REPO_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hidden items-center gap-2 rounded-full border border-slate-200 bg-white/85 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:text-slate-950 sm:flex"
+              >
+                <Github className="h-3.5 w-3.5" />
+                GitHub
+                <Star className="h-3.5 w-3.5 text-amber-500" />
+              </a>
+              <div className="rounded-full border border-white/60 bg-white/80 px-3 py-1.5 text-xs text-slate-500 shadow-sm">Desktop Dev Branch</div>
+            </div>
           </div>
         </header>
 

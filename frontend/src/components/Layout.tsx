@@ -1,39 +1,37 @@
 import { useState } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { LogOut, LayoutDashboard, Palette, Activity, Settings, Zap, Shield, Users, Menu, X } from 'lucide-react';
+import { LogOut, LayoutDashboard, Palette, Activity, Settings, Zap, Shield, Users, Menu, X, Github, ExternalLink, Star } from 'lucide-react';
 import { Button } from './ui/button';
 
-export function Layout() {
-    const logout = useAuthStore((state) => state.logout);
-    const user = useAuthStore((state) => state.user);
-    const navigate = useNavigate();
-    const location = useLocation();
-    const [sidebarOpen, setSidebarOpen] = useState(false);
+const REPO_URL = 'https://github.com/LigphiDonk/academic-figure-generator';
 
-    const handleLogout = () => {
-        logout();
-        navigate('/login');
-    };
+type NavItem = {
+    name: string;
+    path: string;
+    icon: typeof LayoutDashboard;
+};
 
-    const navItems = [
-        { name: '项目列表', path: '/projects', icon: LayoutDashboard },
-        { name: '配色管理', path: '/color-schemes', icon: Palette },
-        { name: '用量看板', path: '/usage', icon: Activity },
-        { name: '设置', path: '/settings', icon: Settings },
-        { name: '快捷生成', path: '/generate', icon: Zap },
-        ...(user?.is_admin ? [
-            { name: '系统管理', path: '/admin/settings', icon: Shield },
-            { name: '用户管理', path: '/admin/users', icon: Users },
-        ] : []),
-    ];
+type SidebarContentProps = {
+    displayName: string;
+    handleLogout: () => void;
+    initials: string;
+    locationPathname: string;
+    navItems: NavItem[];
+    setSidebarOpen: (open: boolean) => void;
+    user: ReturnType<typeof useAuthStore.getState>['user'];
+};
 
-    const displayName = user?.linuxdo_username || user?.display_name || user?.email || '';
-    const initials = displayName
-        ? displayName.slice(0, 2).toUpperCase()
-        : 'U';
-
-    const SidebarContent = () => (
+function SidebarContent({
+    displayName,
+    handleLogout,
+    initials,
+    locationPathname,
+    navItems,
+    setSidebarOpen,
+    user,
+}: SidebarContentProps) {
+    return (
         <div className="flex flex-col h-full">
             {/* Logo + App Name */}
             <div className="px-4 py-5 flex items-center space-x-3">
@@ -55,7 +53,7 @@ export function Layout() {
             {/* Nav Items */}
             <nav className="flex-1 px-2 py-2 space-y-0.5 overflow-y-auto">
                 {navItems.map((item) => {
-                    const isActive = location.pathname.startsWith(item.path);
+                    const isActive = locationPathname.startsWith(item.path);
                     return (
                         <Link
                             key={item.path}
@@ -88,6 +86,26 @@ export function Layout() {
             <div className="mt-auto">
                 <div className="mx-3 mb-3 h-px bg-border/60" />
                 <div className="px-3 pb-4 space-y-1">
+                    <a
+                        href={REPO_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group mb-3 flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 px-3 py-3 transition-colors hover:border-primary/35 hover:bg-primary/10"
+                    >
+                        <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <Github className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                                <span>GitHub 仓库</span>
+                                <Star className="h-3.5 w-3.5 text-primary" />
+                            </div>
+                            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                觉得好用的话，点进来给项目加个 Star。
+                            </p>
+                        </div>
+                        <ExternalLink className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+                    </a>
                     {/* User Identity */}
                     <div className="flex items-center space-x-3 px-2 py-2 rounded-lg">
                         {/* Avatar */}
@@ -122,12 +140,50 @@ export function Layout() {
             </div>
         </div>
     );
+}
+
+export function Layout() {
+    const logout = useAuthStore((state) => state.logout);
+    const user = useAuthStore((state) => state.user);
+    const navigate = useNavigate();
+    const location = useLocation();
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+
+    const handleLogout = () => {
+        logout();
+        navigate('/login');
+    };
+
+    const navItems = [
+        { name: '项目列表', path: '/projects', icon: LayoutDashboard },
+        { name: '配色管理', path: '/color-schemes', icon: Palette },
+        { name: '用量看板', path: '/usage', icon: Activity },
+        { name: '设置', path: '/settings', icon: Settings },
+        { name: '快捷生成', path: '/generate', icon: Zap },
+        ...(user?.is_admin ? [
+            { name: '系统管理', path: '/admin/settings', icon: Shield },
+            { name: '用户管理', path: '/admin/users', icon: Users },
+        ] : []),
+    ];
+
+    const displayName = user?.linuxdo_username || user?.display_name || user?.email || '';
+    const initials = displayName
+        ? displayName.slice(0, 2).toUpperCase()
+        : 'U';
 
     return (
         <div className="min-h-screen flex bg-muted/30">
             {/* Desktop Sidebar */}
             <aside className="hidden md:flex flex-col w-[260px] flex-shrink-0 fixed inset-y-0 left-0 z-20 bg-muted/50 border-r border-border/60">
-                <SidebarContent />
+                <SidebarContent
+                    displayName={displayName}
+                    handleLogout={handleLogout}
+                    initials={initials}
+                    locationPathname={location.pathname}
+                    navItems={navItems}
+                    setSidebarOpen={setSidebarOpen}
+                    user={user}
+                />
             </aside>
 
             {/* Mobile Overlay */}
@@ -156,7 +212,15 @@ export function Layout() {
                 >
                     <X className="w-4 h-4" />
                 </button>
-                <SidebarContent />
+                <SidebarContent
+                    displayName={displayName}
+                    handleLogout={handleLogout}
+                    initials={initials}
+                    locationPathname={location.pathname}
+                    navItems={navItems}
+                    setSidebarOpen={setSidebarOpen}
+                    user={user}
+                />
             </aside>
 
             {/* Main Content */}
