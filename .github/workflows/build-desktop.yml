@@ -1,10 +1,13 @@
-name: Build Desktop App
+name: Build And Release Desktop App
 
 on:
   workflow_dispatch:
   push:
     branches:
       - feat/app
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -59,3 +62,62 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
           if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release metadata
+        id: meta
+        working-directory: desktop
+        run: |
+          version="$(python3 -c "import json; print(json.load(open('src-tauri/tauri.conf.json', encoding='utf-8'))['version'])")"
+          tag="desktop-v${version}-build.${GITHUB_RUN_NUMBER}"
+          release_name="Desktop ${version} Build ${GITHUB_RUN_NUMBER}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "release_name=${release_name}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Create and push tag
+        env:
+          TAG_NAME: ${{ steps.meta.outputs.tag }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG_NAME}" >/dev/null 2>&1; then
+            echo "Tag ${TAG_NAME} already exists on origin."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG_NAME}" "${GITHUB_SHA}" -m "Automated desktop release ${TAG_NAME}"
+          git push origin "refs/tags/${TAG_NAME}"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.release_name }}
+          prerelease: true
+          generate_release_notes: true
+          files: |
+            release-artifacts/**/*.dmg
+            release-artifacts/**/*.exe
+            release-artifacts/**/*.msi
+          body: |
+            Automated desktop build from `${{ github.ref_name }}`.
+
+            Version: `${{ steps.meta.outputs.version }}`
+            Commit: `${{ github.sha }}`
