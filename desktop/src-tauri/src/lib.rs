@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 use tauri::Manager;
 
+const REPO_URL: &str = "https://github.com/LigphiDonk/academic-figure-generator";
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct SecureSettings {
@@ -76,13 +78,20 @@ fn save_secure_settings(app: tauri::AppHandle, settings: SecureSettings) -> Resu
     Ok(true)
 }
 
+#[tauri::command]
+fn open_repository_url() -> Result<bool, String> {
+    tauri_plugin_opener::open_url(REPO_URL, None::<&str>).map_err(|err| err.to_string())?;
+    Ok(true)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_http::init())
         .invoke_handler(tauri::generate_handler![
             get_app_paths,
             load_secure_settings,
-            save_secure_settings
+            save_secure_settings,
+            open_repository_url
         ])
         .run(tauri::generate_context!())
         .expect("error while running academic figure generator desktop");

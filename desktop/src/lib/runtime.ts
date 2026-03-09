@@ -1,5 +1,7 @@
 import type { AppPaths, SecureSettings } from '../types/models';
 
+const REPO_URL = 'https://github.com/LigphiDonk/academic-figure-generator';
+
 type TauriCore = {
   invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
 };
@@ -42,4 +44,13 @@ export async function saveSecureSettingsToRuntime(settings: SecureSettings): Pro
 export async function getRuntimePaths(): Promise<AppPaths> {
   const result = await invokeCommand<AppPaths>('get_app_paths');
   return result ?? browserPaths;
+}
+
+export async function openRepositoryUrl(): Promise<void> {
+  if (isTauriRuntime()) {
+    await invokeCommand<boolean>('open_repository_url');
+    return;
+  }
+
+  window.open(REPO_URL, '_blank', 'noopener,noreferrer');
 }
