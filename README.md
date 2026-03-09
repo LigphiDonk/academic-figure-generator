@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./logo.png" alt="Academic Figure Generator Logo" width="220" />
+</p>
+
 # Academic Figure Generator
 
 ![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)
@@ -7,6 +11,8 @@
 [![License](https://img.shields.io/badge/License-MIT-green)](./LICENSE)
 
 AI 驱动的学术论文配图生成平台。上传论文 → AI 分析内容生成 Prompt → 一键生成高质量科研配图。
+
+现已更新桌面端应用，仓库同时包含 Web 端与桌面端形态，便于在本地环境中完成论文解析、Prompt 生成与配图工作流。
 
 > **一句话**：把"写完论文还要画图"的痛点，变成「上传 → 确认 → 下载」三步流程。
 
@@ -46,6 +52,7 @@ AI 驱动的学术论文配图生成平台。上传论文 → AI 分析内容生
 | 🎨 **配色方案** | 50+ 预设学术配色（含色盲友好方案），支持自定义配色 |
 | ✏️ **图生图编辑** | 基于已有图片 + 文字指令进行二次编辑 |
 | ⚡ **实时状态** | SSE 流式推送生成进度，无需手动刷新 |
+| 🖥️ **桌面端应用** | 已更新桌面端版本，提供更适合本地使用的学术配图生成体验 |
 | 📁 **项目管理** | 按项目组织论文、Prompt 和配图 |
 | 👥 **多用户** | 完整的注册/登录体系，支持 Linux DO OAuth 登录 |
 | 🔑 **BYOK** | 用户可配置自己的 API Key（Claude / NanoBanana），也可使用平台统一 Key |
@@ -61,6 +68,7 @@ AI 驱动的学术论文配图生成平台。上传论文 → AI 分析内容生
 | 数据库 | PostgreSQL 16 · Redis 7 |
 | 存储 | MinIO (S3 兼容) |
 | AI | Claude API (Prompt 生成) · NanoBanana API (配图生成) |
+| 桌面端 | Desktop App（与仓库内 `desktop/` 目录对应） |
 | 部署 | Docker Compose · Nginx |
 
 ## 项目结构
@@ -88,6 +96,7 @@ academic-figure-generator/
 │   │   └── lib/              # API 客户端、工具函数
 │   ├── package.json
 │   └── vite.config.ts
+├── desktop/                  # 桌面端应用目录
 ├── nginx/                    # Nginx 反向代理 + 前端多阶段构建
 │   ├── nginx.conf
 │   └── Dockerfile
@@ -96,6 +105,12 @@ academic-figure-generator/
 ├── Makefile                  # 常用命令快捷方式
 └── .env.example              # 环境变量模板
 ```
+
+## 桌面端应用更新
+
+仓库现已加入更新后的桌面端应用内容，适合需要在本地环境中直接处理论文文件、生成 Prompt 并完成科研配图的使用场景。
+
+如果你主要关注浏览器访问和服务端部署，继续使用下方的 Web 端启动方式即可；如果你要继续完善或打包桌面端，可以从 [`desktop/`](/Users/donkfeng/Desktop/科研配图/academic-figure-generator/desktop) 目录开始。
 
 ## 快速开始
 
