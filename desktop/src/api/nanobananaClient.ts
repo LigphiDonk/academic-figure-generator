@@ -16,6 +16,7 @@ export interface NanoResponse {
   previewDataUrl: string;
   finalPromptSent: string;
   endpoint: string;
+  mimeType: string;
   width: number;
   height: number;
   durationMs: number;
@@ -113,29 +114,52 @@ interface NanoApiResult {
       parts?: Array<{
         inlineData?: {
           data?: string;
+          mimeType?: string;
+          mime_type?: string;
+        };
+        inline_data?: {
+          data?: string;
+          mimeType?: string;
+          mime_type?: string;
         };
       }>;
     };
     finishReason?: string;
+    finish_reason?: string;
     finishMessage?: string;
+    finish_message?: string;
   }>;
 }
 
-function extractBase64FromCandidates(
-  candidates: NanoApiResult['candidates'],
-): string | undefined {
-  const parts = candidates?.flatMap((candidate) => candidate.content?.parts ?? []) ?? [];
-  return parts.find((part) => part.inlineData?.data)?.inlineData?.data;
+interface NanoImagePayload {
+  data: string;
+  mimeType: string;
 }
 
-function extractBase64FromResult(result: NanoApiResult): string | undefined {
-  return extractBase64FromCandidates(result.candidates);
+function extractImagePayloadFromCandidates(
+  candidates: NanoApiResult['candidates'],
+): NanoImagePayload | undefined {
+  const parts = candidates?.flatMap((candidate) => candidate.content?.parts ?? []) ?? [];
+  for (const part of parts) {
+    const inline = part.inlineData ?? part.inline_data;
+    const data = inline?.data?.trim();
+    if (!data) continue;
+    return {
+      data,
+      mimeType: inline?.mimeType ?? inline?.mime_type ?? 'image/png',
+    };
+  }
+  return undefined;
+}
+
+function extractImagePayloadFromResult(result: NanoApiResult): NanoImagePayload | undefined {
+  return extractImagePayloadFromCandidates(result.candidates);
 }
 
 function shouldRetryWithToolArgs(result: NanoApiResult): boolean {
   const candidate = result.candidates?.[0];
-  const finishReason = String(candidate?.finishReason ?? '');
-  const finishMessage = String(candidate?.finishMessage ?? '');
+  const finishReason = String(candidate?.finishReason ?? candidate?.finish_reason ?? '');
+  const finishMessage = String(candidate?.finishMessage ?? candidate?.finish_message ?? '');
   return finishReason === 'MALFORMED_FUNCTION_CALL' || /google:image_gen|Malformed function call/i.test(finishMessage);
 }
 
@@ -206,6 +230,7 @@ export async function generateNanoImage(request: NanoRequest, options?: NanoRequ
       if (!response.body) throw new Error('NanoBanana 返回了空响应流');
 
       let latestResult: NanoApiResult = {};
+      let aggregatedCandidates: NonNullable<NanoApiResult['candidates']> = [];
       let eventCount = 0;
       await readSseStream(response.body, (message) => {
         const data = message.data.trim();
@@ -219,8 +244,11 @@ export async function generateNanoImage(request: NanoRequest, options?: NanoRequ
         }
 
         latestResult = payloadData;
+        if (payloadData.candidates?.length) {
+          aggregatedCandidates = aggregatedCandidates.concat(payloadData.candidates);
+        }
         eventCount += 1;
-        const hasImage = Boolean(extractBase64FromResult(payloadData));
+        const hasImage = Boolean(extractImagePayloadFromCandidates(aggregatedCandidates));
         emitProgress({
           phase: 'streaming',
           message: hasImage
@@ -234,7 +262,9 @@ export async function generateNanoImage(request: NanoRequest, options?: NanoRequ
         message: '流式响应结束，正在解析最终图片数据...',
       });
       return {
-        result: latestResult,
+        result: aggregatedCandidates.length > 0
+          ? { ...latestResult, candidates: aggregatedCandidates }
+          : latestResult,
         endpoint: streamEndpoint,
       };
     }
@@ -274,8 +304,8 @@ export async function generateNanoImage(request: NanoRequest, options?: NanoRequ
   let requestResult = await runRequest(payload);
   let result = requestResult.result;
   let finalEndpoint = requestResult.endpoint;
-  let base64 = extractBase64FromResult(result);
-  if (!base64?.trim() && shouldRetryWithToolArgs(result)) {
+  let imagePayload = extractImagePayloadFromResult(result);
+  if (!imagePayload?.data && shouldRetryWithToolArgs(result)) {
     emitProgress({
       phase: 'retrying',
       message: '首次响应需要重试，正在切换兼容请求格式...',
@@ -284,10 +314,10 @@ export async function generateNanoImage(request: NanoRequest, options?: NanoRequ
     requestResult = await runRequest(payload);
     result = requestResult.result;
     finalEndpoint = requestResult.endpoint;
-    base64 = extractBase64FromResult(result);
+    imagePayload = extractImagePayloadFromResult(result);
   }
 
-  if (!base64?.trim()) {
+  if (!imagePayload?.data) {
     throw new Error(`NanoBanana 返回的图片数据为空: ${JSON.stringify(result).slice(0, 500)}`);
   }
 
@@ -297,12 +327,13 @@ export async function generateNanoImage(request: NanoRequest, options?: NanoRequ
   });
 
   return {
-    previewDataUrl: `data:image/png;base64,${base64}`,
+    previewDataUrl: `data:${imagePayload.mimeType};base64,${imagePayload.data}`,
     finalPromptSent: payload.fullPrompt,
     endpoint: finalEndpoint,
+    mimeType: imagePayload.mimeType,
     width,
     height,
     durationMs: Math.round(performance.now() - startedAt),
-    fileSizeBytes: Math.floor((base64.length * 3) / 4),
+    fileSizeBytes: Math.floor((imagePayload.data.length * 3) / 4),
   };
 }
