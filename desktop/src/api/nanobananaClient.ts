@@ -262,6 +262,44 @@ function extractImagePayloadFromResult(result: NanoApiResult): NanoImagePayload 
   return undefined;
 }
 
+function mergeStreamChunk(
+  previous: NanoApiResult,
+  next: NanoApiResult,
+): NanoApiResult {
+  const merged: NanoApiResult = {
+    ...previous,
+    ...next,
+  };
+
+  const mergedCandidates = [
+    ...(previous.candidates ?? []),
+    ...(next.candidates ?? []),
+  ];
+  if (mergedCandidates.length > 0) {
+    merged.candidates = mergedCandidates;
+  }
+
+  const mergedData = [
+    ...(previous.data ?? []),
+    ...(next.data ?? []),
+  ];
+  if (mergedData.length > 0) {
+    merged.data = mergedData;
+  }
+
+  if (!next.image_base64 && previous.image_base64) {
+    merged.image_base64 = previous.image_base64;
+  }
+  if (!next.mimeType && previous.mimeType) {
+    merged.mimeType = previous.mimeType;
+  }
+  if (!next.mime_type && previous.mime_type) {
+    merged.mime_type = previous.mime_type;
+  }
+
+  return merged;
+}
+
 function shouldRetryWithToolArgs(result: NanoApiResult): boolean {
   const candidate = result.candidates?.[0];
   const finishReason = String(candidate?.finishReason ?? candidate?.finish_reason ?? '');
@@ -361,8 +399,7 @@ export async function generateNanoImage(request: NanoRequest, options?: NanoRequ
     if (streamMode && contentType.includes('text/event-stream')) {
       if (!response.body) throw new Error('NanoBanana 返回了空响应流');
 
-      let latestResult: NanoApiResult = {};
-      let aggregatedCandidates: NonNullable<NanoApiResult['candidates']> = [];
+      let mergedResult: NanoApiResult = {};
       let eventCount = 0;
       await readSseStream(response.body, (message) => {
         const data = message.data.trim();
@@ -375,12 +412,9 @@ export async function generateNanoImage(request: NanoRequest, options?: NanoRequ
           throw new Error('NanoBanana 流式响应解析失败：收到无效事件数据');
         }
 
-        latestResult = payloadData;
-        if (payloadData.candidates?.length) {
-          aggregatedCandidates = aggregatedCandidates.concat(payloadData.candidates);
-        }
+        mergedResult = mergeStreamChunk(mergedResult, payloadData);
         eventCount += 1;
-        const hasImage = Boolean(extractImagePayloadFromCandidates(aggregatedCandidates));
+        const hasImage = Boolean(extractImagePayloadFromResult(mergedResult));
         emitProgress({
           phase: 'streaming',
           message: hasImage
@@ -394,9 +428,7 @@ export async function generateNanoImage(request: NanoRequest, options?: NanoRequ
         message: '流式响应结束，正在解析最终图片数据...',
       });
       return {
-        result: aggregatedCandidates.length > 0
-          ? { ...latestResult, candidates: aggregatedCandidates }
-          : latestResult,
+        result: mergedResult,
         endpoint: streamEndpoint,
       };
     }
