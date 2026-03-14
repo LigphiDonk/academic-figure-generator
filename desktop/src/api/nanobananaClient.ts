@@ -1,4 +1,5 @@
 import { apiFetch } from '../lib/apiFetch';
+import { readSseStream } from '../lib/sse';
 import type { AspectRatio, Resolution, SecureSettings } from '../types/models';
 
 interface NanoRequest {
@@ -19,6 +20,13 @@ export interface NanoResponse {
   height: number;
   durationMs: number;
   fileSizeBytes: number;
+}
+
+export type NanoGenerationPhase = 'requesting' | 'streaming' | 'retrying' | 'decoding' | 'completed';
+
+export interface NanoGenerationProgress {
+  phase: NanoGenerationPhase;
+  message: string;
 }
 
 const RESOLUTION_MAP: Record<Resolution, number> = {
@@ -113,9 +121,15 @@ interface NanoApiResult {
   }>;
 }
 
-function extractBase64FromResult(result: NanoApiResult): string | undefined {
-  const parts = result.candidates?.[0]?.content?.parts ?? [];
+function extractBase64FromCandidates(
+  candidates: NanoApiResult['candidates'],
+): string | undefined {
+  const parts = candidates?.flatMap((candidate) => candidate.content?.parts ?? []) ?? [];
   return parts.find((part) => part.inlineData?.data)?.inlineData?.data;
+}
+
+function extractBase64FromResult(result: NanoApiResult): string | undefined {
+  return extractBase64FromCandidates(result.candidates);
 }
 
 function shouldRetryWithToolArgs(result: NanoApiResult): boolean {
@@ -123,6 +137,10 @@ function shouldRetryWithToolArgs(result: NanoApiResult): boolean {
   const finishReason = String(candidate?.finishReason ?? '');
   const finishMessage = String(candidate?.finishMessage ?? '');
   return finishReason === 'MALFORMED_FUNCTION_CALL' || /google:image_gen|Malformed function call/i.test(finishMessage);
+}
+
+interface NanoRequestOptions {
+  onProgress?: (progress: NanoGenerationProgress) => void;
 }
 
 /**
@@ -134,24 +152,38 @@ function shouldRetryWithToolArgs(result: NanoApiResult): boolean {
  * - Auth: Bearer token
  * - Response: { candidates[0].content.parts[].inlineData.data }
  */
-export async function generateNanoImage(request: NanoRequest): Promise<NanoResponse> {
+export async function generateNanoImage(request: NanoRequest, options?: NanoRequestOptions): Promise<NanoResponse> {
+  const emitProgress = (progress: NanoGenerationProgress) => {
+    options?.onProgress?.(progress);
+  };
+
   const { width, height } = computeDimensions(request.resolution, request.aspectRatio);
   const model = request.secureSettings.nanobananaModel || 'gemini-2.0-flash-exp-image-generation';
   const baseUrl = request.secureSettings.nanobananaBaseUrl.replace(/\/+$/, '');
-  const endpoint = `${baseUrl}/v1beta/models/${model}:generateContent`;
+  const streamEndpoint = `${baseUrl}/v1beta/models/${model}:streamGenerateContent?alt=sse`;
+  const fallbackEndpoint = `${baseUrl}/v1beta/models/${model}:generateContent`;
   const startedAt = performance.now();
 
   const promptText = request.editInstruction
     ? `${request.editInstruction}\n\nOriginal prompt context:\n${request.prompt}`
     : request.prompt;
-  const sendRequest = async (payload: ReturnType<typeof buildGenerationPayload>): Promise<NanoApiResult> => {
+  const sendRequest = async (
+    payload: ReturnType<typeof buildGenerationPayload>,
+    streamMode: boolean,
+  ): Promise<{ result: NanoApiResult; endpoint: string }> => {
+    emitProgress({
+      phase: 'requesting',
+      message: streamMode ? '正在向 NanoBanana 发起流式图片生成请求...' : '正在向 NanoBanana 发送图片生成请求...',
+    });
+
     let response: Response;
     try {
-      response = await apiFetch(endpoint, {
+      response = await apiFetch(streamMode ? streamEndpoint : fallbackEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${request.secureSettings.nanobananaApiKey}`,
+          'x-goog-api-key': request.secureSettings.nanobananaApiKey,
         },
         body: JSON.stringify({
           contents: payload.contents,
@@ -169,20 +201,89 @@ export async function generateNanoImage(request: NanoRequest): Promise<NanoRespo
       throw new Error(`NanoBanana API 请求失败 (${response.status})：${detail.slice(0, 300)}`);
     }
 
+    const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+    if (streamMode && contentType.includes('text/event-stream')) {
+      if (!response.body) throw new Error('NanoBanana 返回了空响应流');
+
+      let latestResult: NanoApiResult = {};
+      let eventCount = 0;
+      await readSseStream(response.body, (message) => {
+        const data = message.data.trim();
+        if (!data || data === '[DONE]') return;
+        let payloadData: NanoApiResult;
+        try {
+          payloadData = JSON.parse(data) as NanoApiResult;
+        } catch (parseError) {
+          console.error('[nanobananaClient] SSE payload parse failed:', parseError, data);
+          throw new Error('NanoBanana 流式响应解析失败：收到无效事件数据');
+        }
+
+        latestResult = payloadData;
+        eventCount += 1;
+        const hasImage = Boolean(extractBase64FromResult(payloadData));
+        emitProgress({
+          phase: 'streaming',
+          message: hasImage
+            ? `NanoBanana 流式响应完成，已收到图片结果（事件 ${eventCount}）...`
+            : `NanoBanana 正在流式返回结果（事件 ${eventCount}）...`,
+        });
+      });
+
+      emitProgress({
+        phase: 'decoding',
+        message: '流式响应结束，正在解析最终图片数据...',
+      });
+      return {
+        result: latestResult,
+        endpoint: streamEndpoint,
+      };
+    }
+
+    emitProgress({
+      phase: 'decoding',
+      message: streamMode ? '上游未返回 SSE，正在按普通响应解析图片数据...' : '模型已返回响应，正在解析图片数据...',
+    });
+
     try {
-      return (await response.json()) as NanoApiResult;
+      return {
+        result: (await response.json()) as NanoApiResult,
+        endpoint: streamMode ? streamEndpoint : fallbackEndpoint,
+      };
     } catch (jsonError) {
       console.error('[nanobananaClient] JSON parse failed:', jsonError);
       throw new Error('NanoBanana API 响应解析失败：返回内容不是有效的 JSON');
     }
   };
 
+  const runRequest = async (
+    nextPayload: ReturnType<typeof buildGenerationPayload>,
+  ): Promise<{ result: NanoApiResult; endpoint: string }> => {
+    try {
+      return await sendRequest(nextPayload, true);
+    } catch (streamError) {
+      const message = streamError instanceof Error ? streamError.message : String(streamError);
+      emitProgress({
+        phase: 'retrying',
+        message: `流式接口失败，正在回退普通接口：${message.slice(0, 120)}`,
+      });
+      return sendRequest(nextPayload, false);
+    }
+  };
+
   let payload = buildGenerationPayload(promptText, request.aspectRatio, request.resolution, request.colorScheme);
-  let result = await sendRequest(payload);
+  let requestResult = await runRequest(payload);
+  let result = requestResult.result;
+  let finalEndpoint = requestResult.endpoint;
   let base64 = extractBase64FromResult(result);
   if (!base64?.trim() && shouldRetryWithToolArgs(result)) {
+    emitProgress({
+      phase: 'retrying',
+      message: '首次响应需要重试，正在切换兼容请求格式...',
+    });
     payload = buildGenerationPayload(promptText, request.aspectRatio, request.resolution, request.colorScheme, 'tool-args');
-    result = await sendRequest(payload);
+    requestResult = await runRequest(payload);
+    result = requestResult.result;
+    finalEndpoint = requestResult.endpoint;
     base64 = extractBase64FromResult(result);
   }
 
@@ -190,10 +291,15 @@ export async function generateNanoImage(request: NanoRequest): Promise<NanoRespo
     throw new Error(`NanoBanana 返回的图片数据为空: ${JSON.stringify(result).slice(0, 500)}`);
   }
 
+  emitProgress({
+    phase: 'completed',
+    message: '图片数据已准备完成',
+  });
+
   return {
     previewDataUrl: `data:image/png;base64,${base64}`,
     finalPromptSent: payload.fullPrompt,
-    endpoint,
+    endpoint: finalEndpoint,
     width,
     height,
     durationMs: Math.round(performance.now() - startedAt),

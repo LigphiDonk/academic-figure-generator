@@ -10,7 +10,7 @@ import { Textarea } from '../components/ui/textarea';
 import { ASPECT_RATIO_OPTIONS, RESOLUTION_OPTIONS } from '../lib/catalog';
 import { saveImageToDownloads } from '../lib/runtime';
 import { formatDate } from '../lib/utils';
-import { imageService } from '../services/imageService';
+import { imageService, type ImageGenerationProgress } from '../services/imageService';
 import { useSettingsStore } from '../store/settingsStore';
 import type { AspectRatio, ImageRecord, Resolution } from '../types/models';
 
@@ -25,6 +25,7 @@ export function Generate() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isBusy, setIsBusy] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState<ImageGenerationProgress | null>(null);
 
   const loadHistory = async () => setHistory(await imageService.listImages());
   useEffect(() => { void loadHistory(); }, []);
@@ -33,6 +34,10 @@ export function Generate() {
     setError('');
     setSuccess('');
     if (!prompt.trim()) return setError('请输入用于生成图片的 Prompt');
+    setGenerationProgress({
+      phase: 'preparing',
+      message: '正在准备图片生成请求...',
+    });
     setIsBusy(true);
     try {
       await imageService.generateImage({
@@ -42,12 +47,17 @@ export function Generate() {
         referenceImage,
         editInstruction: editInstruction.trim() || undefined,
         colorSchemeId: settings?.defaultColorScheme ?? 'okabe-ito',
+      }, {
+        onProgress: (progress) => {
+          setGenerationProgress(progress);
+        },
       });
       setPrompt('');
       setEditInstruction('');
       setReferenceImage(undefined);
       await loadHistory();
     } catch (generationError) {
+      setGenerationProgress(null);
       setError(generationError instanceof Error ? generationError.message : '直接生成失败');
     } finally {
       setIsBusy(false);
@@ -74,6 +84,7 @@ export function Generate() {
           <div className="space-y-4">
             {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
             {success ? <Alert><AlertDescription>{success}</AlertDescription></Alert> : null}
+            {generationProgress ? <Alert><AlertDescription>{generationProgress.message}</AlertDescription></Alert> : null}
             <div className="space-y-2"><Label htmlFor="direct-prompt">Prompt</Label><Textarea id="direct-prompt" rows={10} value={prompt} onChange={(event) => setPrompt(event.target.value)} /></div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2"><Label>分辨率</Label><Select value={resolution} onValueChange={(value) => setResolution(value as Resolution)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{RESOLUTION_OPTIONS.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></div>

@@ -4,6 +4,16 @@ import { isoNow, wordCount } from '../lib/utils';
 import { mutateSnapshot, readSnapshot } from './storage';
 import { projectService } from './projectService';
 
+export type DocumentUploadPhase = 'reading' | 'parsing' | 'saving' | 'completed';
+
+export interface DocumentUploadProgress {
+  phase: DocumentUploadPhase;
+  current: number;
+  total: number;
+  fileName?: string;
+  message: string;
+}
+
 type PdfJsModule = {
   GlobalWorkerOptions: {
     workerSrc: string;
@@ -439,61 +449,104 @@ export class DocumentService {
     return snapshot.documents.find((item) => item.id === id) ?? null;
   }
 
-  async uploadDocuments(projectId: string, files: File[]): Promise<DocumentRecord[]> {
-    const documents = await Promise.all(
-      files.map(async (file) => {
-        const extension = file.name.split('.').pop()?.toLowerCase();
-        if (!extension || !['pdf', 'docx', 'txt'].includes(extension)) throw new Error(`不支持的文件类型：${file.name}`);
-        const timestamp = isoNow();
-        const id = crypto.randomUUID();
-        const fileType = extension as 'pdf' | 'docx' | 'txt';
-        let parsedText = '';
-        let sections: DocumentSection[] = [];
-        let parseStatus: DocumentRecord['parseStatus'] = 'completed';
-        let parseError: string | undefined;
-        let pageTexts: string[] | undefined;
-        if (fileType === 'txt') {
-          parsedText = await file.text();
-          sections = splitTextIntoSections(parsedText);
-        } else if (fileType === 'pdf') {
-          const result = await parsePdfFile(file);
-          parsedText = result.parsedText;
-          sections = result.sections;
-          pageTexts = result.pageTexts;
-        } else if (fileType === 'docx') {
-          ({ parsedText, sections } = await parseDocxFile(file));
-        } else {
-          parseStatus = 'failed';
-          parseError = `不支持的文件类型：${fileType}`;
-        }
-        if (sections.length === 0) {
-          parseStatus = 'failed';
-          parseError = parseError ?? `未能从 ${file.name} 中提取可用内容`;
-        }
-        return {
-          id,
-          projectId,
-          filename: file.name,
-          fileType,
-          filePath: `documents/${projectId}/${id}.${extension}`,
-          fileSizeBytes: file.size,
-          wordCount: wordCount(parsedText),
-          parsedText: parsedText || undefined,
-          sections,
-          pageTexts,
-          ocrApplied: false,
-          parseStatus,
-          parseError,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        } satisfies DocumentRecord;
-      }),
-    );
+  async uploadDocuments(projectId: string, files: File[], options?: {
+    onProgress?: (progress: DocumentUploadProgress) => void;
+  }): Promise<DocumentRecord[]> {
+    const emitProgress = (progress: DocumentUploadProgress) => {
+      options?.onProgress?.(progress);
+    };
+
+    const documents: DocumentRecord[] = [];
+    for (const [index, file] of files.entries()) {
+      const current = index + 1;
+      emitProgress({
+        phase: 'reading',
+        current,
+        total: files.length,
+        fileName: file.name,
+        message: `正在读取文件 ${current}/${files.length}: ${file.name}`,
+      });
+
+      const extension = file.name.split('.').pop()?.toLowerCase();
+      if (!extension || !['pdf', 'docx', 'txt'].includes(extension)) throw new Error(`不支持的文件类型：${file.name}`);
+      const timestamp = isoNow();
+      const id = crypto.randomUUID();
+      const fileType = extension as 'pdf' | 'docx' | 'txt';
+      let parsedText = '';
+      let sections: DocumentSection[] = [];
+      let parseStatus: DocumentRecord['parseStatus'] = 'completed';
+      let parseError: string | undefined;
+      let pageTexts: string[] | undefined;
+
+      emitProgress({
+        phase: 'parsing',
+        current,
+        total: files.length,
+        fileName: file.name,
+        message: fileType === 'pdf'
+          ? `正在解析 PDF ${current}/${files.length}: ${file.name}`
+          : fileType === 'docx'
+            ? `正在解析 DOCX ${current}/${files.length}: ${file.name}`
+            : `正在读取文本 ${current}/${files.length}: ${file.name}`,
+      });
+
+      if (fileType === 'txt') {
+        parsedText = await file.text();
+        sections = splitTextIntoSections(parsedText);
+      } else if (fileType === 'pdf') {
+        const result = await parsePdfFile(file);
+        parsedText = result.parsedText;
+        sections = result.sections;
+        pageTexts = result.pageTexts;
+      } else if (fileType === 'docx') {
+        ({ parsedText, sections } = await parseDocxFile(file));
+      } else {
+        parseStatus = 'failed';
+        parseError = `不支持的文件类型：${fileType}`;
+      }
+      if (sections.length === 0) {
+        parseStatus = 'failed';
+        parseError = parseError ?? `未能从 ${file.name} 中提取可用内容`;
+      }
+
+      documents.push({
+        id,
+        projectId,
+        filename: file.name,
+        fileType,
+        filePath: `documents/${projectId}/${id}.${extension}`,
+        fileSizeBytes: file.size,
+        wordCount: wordCount(parsedText),
+        parsedText: parsedText || undefined,
+        sections,
+        pageTexts,
+        ocrApplied: false,
+        parseStatus,
+        parseError,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      } satisfies DocumentRecord);
+    }
+
+    emitProgress({
+      phase: 'saving',
+      current: files.length,
+      total: files.length,
+      message: '解析完成，正在写入本地项目索引...',
+    });
 
     await mutateSnapshot((snapshot) => {
       snapshot.documents.push(...documents);
     });
     await projectService.touchProject(projectId);
+
+    emitProgress({
+      phase: 'completed',
+      current: files.length,
+      total: files.length,
+      message: `已导入 ${documents.length} 个文档`,
+    });
+
     return documents;
   }
 

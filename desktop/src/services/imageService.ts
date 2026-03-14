@@ -8,6 +8,14 @@ import { settingsService } from './settingsService';
 import { deleteImagePreview, loadImagePreview, mutateSnapshot, readSnapshot, saveImagePreview } from './storage';
 import { usageService } from './usageService';
 
+export type ImageGenerationPhase = 'preparing' | 'requesting' | 'streaming' | 'retrying' | 'decoding' | 'saving' | 'completed';
+
+export interface ImageGenerationProgress {
+  phase: ImageGenerationPhase;
+  message: string;
+  previewDataUrl?: string;
+}
+
 function getPromptText(prompt: { originalPrompt?: string; editedPrompt?: string }): string {
   return prompt.editedPrompt?.trim() || prompt.originalPrompt?.trim() || '';
 }
@@ -42,7 +50,18 @@ export class ImageService {
     colorSchemeId?: string;
     referenceImage?: File;
     editInstruction?: string;
+  }, options?: {
+    onProgress?: (progress: ImageGenerationProgress) => void;
   }): Promise<ImageRecord> {
+    const emitProgress = (progress: ImageGenerationProgress) => {
+      options?.onProgress?.(progress);
+    };
+
+    emitProgress({
+      phase: 'preparing',
+      message: '正在准备图片生成参数...',
+    });
+
     const secureSettings = await settingsService.getSecureSettings();
     if (!secureSettings.nanobananaApiKey.trim()) throw new Error('NanoBanana API Key 未配置');
     const colors = input.colorSchemeId ? (await colorSchemeService.getColorScheme(input.colorSchemeId))?.colors : undefined;
@@ -55,7 +74,18 @@ export class ImageService {
       colorScheme: describeColorScheme(input.colorSchemeId, colors),
       referenceImage: input.referenceImage,
       editInstruction: input.editInstruction,
+    }, {
+      onProgress: (progress) => {
+        emitProgress(progress);
+      },
     });
+
+    emitProgress({
+      phase: 'saving',
+      message: '正在保存图片到本地历史...',
+      previewDataUrl: response.previewDataUrl,
+    });
+
     await saveImagePreview(imageId, response.previewDataUrl);
 
     const timestamp = isoNow();
@@ -94,6 +124,13 @@ export class ImageService {
       requestDurationMs: response.durationMs,
       isSuccess: true,
     });
+
+    emitProgress({
+      phase: 'completed',
+      message: '图片已生成并写入本地历史',
+      previewDataUrl: response.previewDataUrl,
+    });
+
     return { ...image, previewDataUrl: response.previewDataUrl };
   }
 
@@ -105,6 +142,8 @@ export class ImageService {
     colorSchemeId: string;
     referenceImage?: File;
     editInstruction?: string;
+  }, options?: {
+    onProgress?: (progress: ImageGenerationProgress) => void;
   }): Promise<ImageRecord> {
     const prompts = await promptService.listPrompts(input.projectId);
     const prompt = prompts.find((item) => item.id === input.promptId);
@@ -118,7 +157,7 @@ export class ImageService {
       colorSchemeId: input.colorSchemeId,
       referenceImage: input.referenceImage,
       editInstruction: input.editInstruction,
-    });
+    }, options);
   }
 }
 

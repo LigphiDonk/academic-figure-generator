@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
+import { startTransition, useDeferredValue, useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { Download, FileUp, ImagePlus, Sparkles, Trash2 } from 'lucide-react';
 import { Alert, AlertDescription } from '../components/ui/alert';
@@ -13,9 +13,9 @@ import { ASPECT_RATIO_OPTIONS, FIGURE_TYPE_OPTIONS, RESOLUTION_OPTIONS } from '.
 import { saveImageToDownloads } from '../lib/runtime';
 import { formatDate, formatFileSize } from '../lib/utils';
 import { colorSchemeService } from '../services/colorSchemeService';
-import { documentService } from '../services/documentService';
-import { imageService } from '../services/imageService';
-import { promptService } from '../services/promptService';
+import { documentService, type DocumentUploadProgress } from '../services/documentService';
+import { imageService, type ImageGenerationProgress } from '../services/imageService';
+import { promptService, type PromptGenerationProgress } from '../services/promptService';
 import { useProjectStore } from '../store/projectStore';
 import { useSettingsStore } from '../store/settingsStore';
 import type { AspectRatio, ColorScheme, DocumentRecord, FigureType, ImageRecord, PromptRecord, Resolution } from '../types/models';
@@ -26,6 +26,14 @@ interface PromptSettings {
   resolution: Resolution;
   aspectRatio: AspectRatio;
 }
+
+const PROMPT_PHASE_LABELS: Record<PromptGenerationProgress['phase'], string> = {
+  preparing: '准备中',
+  requesting: '连接中',
+  streaming: '流式输出',
+  saving: '保存中',
+  completed: '已完成',
+};
 
 export function ProjectWorkspace() {
   const { id } = useParams<{ id: string }>();
@@ -38,8 +46,11 @@ export function ProjectWorkspace() {
   const [colorSchemes, setColorSchemes] = useState<ColorScheme[]>([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  const [busyStates, setBusyStates] = useState<Record<string, ImageGenerationProgress>>({});
   const [isGeneratingPrompts, setIsGeneratingPrompts] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<DocumentUploadProgress | null>(null);
+  const [promptProgress, setPromptProgress] = useState<PromptGenerationProgress | null>(null);
+  const deferredPromptRawText = useDeferredValue(promptProgress?.rawText ?? '');
 
   // Document & page range state
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>('');
@@ -143,12 +154,23 @@ export function ProjectWorkspace() {
     if (!fileList?.length || !projectId) return;
     setError('');
     setSuccess('');
+    setUploadProgress({
+      phase: 'reading',
+      current: 0,
+      total: fileList.length,
+      message: '正在准备导入文档...',
+    });
     try {
-      await documentService.uploadDocuments(projectId, Array.from(fileList));
+      await documentService.uploadDocuments(projectId, Array.from(fileList), {
+        onProgress: (progress) => {
+          setUploadProgress(progress);
+        },
+      });
       await loadWorkspace();
       await refreshProjects();
       setSuccess('文档已导入到本地项目');
     } catch (uploadError) {
+      setUploadProgress(null);
       setError(uploadError instanceof Error ? uploadError.message : '文档上传失败');
     } finally {
       event.target.value = '';
@@ -159,6 +181,13 @@ export function ProjectWorkspace() {
     if (!projectId) return;
     setError('');
     setSuccess('');
+    startTransition(() => {
+      setPromptProgress({
+        phase: 'preparing',
+        message: '正在准备提示词生成上下文...',
+        rawText: '',
+      });
+    });
     setIsGeneratingPrompts(true);
     try {
       await promptService.generatePrompts({
@@ -169,6 +198,12 @@ export function ProjectWorkspace() {
         customRequest: customRequest.trim() || undefined,
         maxCount: Math.min(Math.max(Number(maxCount) || 1, 1), 10),
         templateMode,
+      }, {
+        onProgress: (progress) => {
+          startTransition(() => {
+            setPromptProgress(progress);
+          });
+        },
       });
       await loadWorkspace();
       await refreshProjects();
@@ -197,7 +232,13 @@ export function ProjectWorkspace() {
     const s = getSettings(promptId);
     setError('');
     setSuccess('');
-    setBusyIds((prev) => new Set(prev).add(promptId));
+    setBusyStates((prev) => ({
+      ...prev,
+      [promptId]: {
+        phase: 'preparing',
+        message: '正在准备图片生成参数...',
+      },
+    }));
     try {
       await imageService.generateFromPrompt({
         projectId,
@@ -205,6 +246,13 @@ export function ProjectWorkspace() {
         resolution: s.resolution,
         aspectRatio: s.aspectRatio,
         colorSchemeId: s.colorScheme,
+      }, {
+        onProgress: (progress) => {
+          setBusyStates((prev) => ({
+            ...prev,
+            [promptId]: progress,
+          }));
+        },
       });
       await loadWorkspace();
       await refreshProjects();
@@ -212,7 +260,11 @@ export function ProjectWorkspace() {
     } catch (generationError) {
       setError(generationError instanceof Error ? generationError.message : '图片生成失败');
     } finally {
-      setBusyIds((prev) => { const next = new Set(prev); next.delete(promptId); return next; });
+      setBusyStates((prev) => {
+        const next = { ...prev };
+        delete next[promptId];
+        return next;
+      });
     }
   };
 
@@ -264,6 +316,22 @@ export function ProjectWorkspace() {
                 <FileUp className="h-4 w-4" />选择一个或多个文档
               </Label>
               <Input id="document-upload" type="file" accept=".pdf,.docx,.txt" multiple className="hidden" onChange={handleUpload} />
+
+              {uploadProgress ? (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/90 p-4">
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span>{uploadProgress.fileName ?? '批量导入'}</span>
+                    <span>{Math.min(uploadProgress.current, uploadProgress.total)}/{uploadProgress.total}</span>
+                  </div>
+                  <div className="mt-2 text-sm text-slate-700">{uploadProgress.message}</div>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className="h-full rounded-full bg-slate-900 transition-all"
+                      style={{ width: `${uploadProgress.total ? Math.max((uploadProgress.current / uploadProgress.total) * 100, 8) : 8}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null}
 
               {/* Document list */}
               <div className="space-y-2">
@@ -389,6 +457,32 @@ export function ProjectWorkspace() {
 
         {/* RIGHT COLUMN: Prompt cards with per-image settings */}
         <div className="space-y-5">
+          {promptProgress ? (
+            <Card className="rounded-[28px] border-white/70 bg-white/85 shadow-xl shadow-slate-200/50">
+              <CardHeader className="space-y-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <CardTitle className="text-lg">生成输出流</CardTitle>
+                  <Badge variant={promptProgress.phase === 'completed' ? 'default' : 'secondary'}>
+                    {PROMPT_PHASE_LABELS[promptProgress.phase]}
+                  </Badge>
+                  {promptProgress.model ? <Badge variant="outline">{promptProgress.model}</Badge> : null}
+                </div>
+                <CardDescription>{promptProgress.message}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {(promptProgress.inputTokens != null || promptProgress.outputTokens != null) ? (
+                  <div className="flex flex-wrap gap-3 text-xs text-slate-500">
+                    <span>输入 Tokens: {promptProgress.inputTokens ?? 0}</span>
+                    <span>输出 Tokens: {promptProgress.outputTokens ?? 0}</span>
+                  </div>
+                ) : null}
+                <div className="max-h-[320px] overflow-y-auto rounded-2xl border border-slate-200 bg-slate-950 p-4 font-mono text-[11px] leading-5 text-slate-100 whitespace-pre-wrap break-words">
+                  {deferredPromptRawText || '等待返回内容...'}
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
           {prompts.length === 0 ? (
             <Card className="rounded-[28px] border-white/70 bg-white/80 p-8 shadow-xl shadow-slate-200/50">
               <CardTitle className="text-lg">还没有提示词</CardTitle>
@@ -399,6 +493,7 @@ export function ProjectWorkspace() {
           {prompts.map((prompt) => {
             const s = getSettings(prompt.id);
             const promptImages = images.filter((img) => img.promptId === prompt.id);
+            const busyState = busyStates[prompt.id];
             const latestImage = promptImages.length > 0
               ? promptImages.reduce((a, b) => b.createdAt.localeCompare(a.createdAt) > 0 ? b : a)
               : null;
@@ -409,8 +504,9 @@ export function ProjectWorkspace() {
                 {latestImage?.previewDataUrl ? (
                   <img src={latestImage.previewDataUrl} alt={prompt.title ?? prompt.id} className="aspect-video w-full object-cover" />
                 ) : (
-                  <div className="flex aspect-video items-center justify-center bg-slate-100 text-sm text-slate-400">
-                    {busyIds.has(prompt.id) ? '生成中...' : '待生成图片'}
+                  <div className="flex aspect-video flex-col items-center justify-center gap-2 bg-slate-100 px-6 text-center text-sm text-slate-400">
+                    <div>{busyState ? '生成中...' : '待生成图片'}</div>
+                    {busyState ? <div className="text-xs text-slate-500">{busyState.message}</div> : null}
                   </div>
                 )}
 
@@ -458,8 +554,8 @@ export function ProjectWorkspace() {
                   {/* Action buttons */}
                   <div className="flex flex-wrap gap-3">
                     <Button variant="outline" size="sm" onClick={() => void handleSavePrompt(prompt.id)}>保存修改</Button>
-                    <Button size="sm" onClick={() => void handleGenerateImage(prompt.id)} disabled={busyIds.has(prompt.id)}>
-                      <ImagePlus className="mr-2 h-4 w-4" />{busyIds.has(prompt.id) ? '生成中...' : '生成图片'}
+                    <Button size="sm" onClick={() => void handleGenerateImage(prompt.id)} disabled={Boolean(busyState)}>
+                      <ImagePlus className="mr-2 h-4 w-4" />{busyState ? '生成中...' : '生成图片'}
                     </Button>
                     {latestImage?.previewDataUrl ? (
                       <Button variant="outline" size="sm" onClick={() => void handleDownloadImage(latestImage, `academic-figure-${latestImage.id}.png`)}>
@@ -468,6 +564,8 @@ export function ProjectWorkspace() {
                     ) : null}
                     <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700" onClick={() => void promptService.deletePrompt(prompt.id).then(loadWorkspace)}><Trash2 className="mr-2 h-4 w-4" />删除</Button>
                   </div>
+
+                  {busyState ? <div className="text-xs text-slate-500">{busyState.message}</div> : null}
 
                   {/* Previous images for this prompt */}
                   {promptImages.length > 1 ? (

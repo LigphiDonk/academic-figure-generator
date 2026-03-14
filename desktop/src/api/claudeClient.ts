@@ -1,6 +1,7 @@
 import { FIGURE_TYPES } from '../core/prompts/figureTypes';
 import { ACADEMIC_FIGURE_SYSTEM_PROMPT, TEMPLATE_FIGURE_SYSTEM_PROMPT } from '../core/prompts/systemPrompt';
 import { apiFetch } from '../lib/apiFetch';
+import { readSseStream } from '../lib/sse';
 import type { ColorValues, FigureType, SecureSettings } from '../types/models';
 
 export interface ClaudeFigureDraft {
@@ -15,10 +16,19 @@ export interface ClaudeFigureDraft {
 
 export interface ClaudeResponse {
   figures: ClaudeFigureDraft[];
+  rawText: string;
   inputTokens: number;
   outputTokens: number;
   model: string;
   durationMs: number;
+}
+
+export interface ClaudeStreamUpdate {
+  event: string;
+  rawText: string;
+  inputTokens: number;
+  outputTokens: number;
+  model: string;
 }
 
 interface ClaudeRequest {
@@ -30,6 +40,10 @@ interface ClaudeRequest {
   maxCount: number;
   customRequest?: string;
   templateMode?: boolean;
+}
+
+interface ClaudeStreamOptions {
+  onUpdate?: (update: ClaudeStreamUpdate) => void;
 }
 
 function serializeColorScheme(colorScheme: ColorValues): string {
@@ -172,7 +186,55 @@ function normalizeClaudeApiUrl(baseOrFull?: string): string {
   return `${url}/v1/messages`;
 }
 
-export async function generateClaudePrompts(request: ClaudeRequest): Promise<ClaudeResponse> {
+function emitUpdate(
+  options: ClaudeStreamOptions | undefined,
+  update: ClaudeStreamUpdate,
+): void {
+  options?.onUpdate?.(update);
+}
+
+async function readJsonResponse(
+  response: Response,
+  request: ClaudeRequest,
+  startedAt: number,
+  options?: ClaudeStreamOptions,
+): Promise<ClaudeResponse> {
+  let result: {
+    content?: Array<{ type: string; text?: string }>;
+    usage?: { input_tokens?: number; output_tokens?: number };
+    model?: string;
+  };
+  try {
+    result = (await response.json()) as typeof result;
+  } catch (jsonError) {
+    console.error('[claudeClient] JSON parse failed:', jsonError);
+    throw new Error('Claude API 响应解析失败：返回内容不是有效的 JSON');
+  }
+
+  const text = (result.content ?? []).filter((item) => item.type === 'text').map((item) => item.text ?? '').join('');
+  const update = {
+    event: 'message_stop',
+    rawText: text,
+    inputTokens: result.usage?.input_tokens ?? 0,
+    outputTokens: result.usage?.output_tokens ?? 0,
+    model: result.model ?? request.secureSettings.claudeModel,
+  } satisfies ClaudeStreamUpdate;
+  emitUpdate(options, update);
+
+  return {
+    figures: parseClaudeContent(text).slice(0, request.maxCount),
+    rawText: text,
+    inputTokens: update.inputTokens,
+    outputTokens: update.outputTokens,
+    model: update.model,
+    durationMs: Math.round(performance.now() - startedAt),
+  };
+}
+
+export async function generateClaudePrompts(
+  request: ClaudeRequest,
+  options?: ClaudeStreamOptions,
+): Promise<ClaudeResponse> {
   const endpoint = normalizeClaudeApiUrl(request.secureSettings.claudeBaseUrl);
   const startedAt = performance.now();
 
@@ -188,6 +250,7 @@ export async function generateClaudePrompts(request: ClaudeRequest): Promise<Cla
       body: JSON.stringify({
         model: request.secureSettings.claudeModel,
         max_tokens: 8192,
+        stream: true,
         system: request.templateMode ? TEMPLATE_FIGURE_SYSTEM_PROMPT : ACADEMIC_FIGURE_SYSTEM_PROMPT,
         messages: [{ role: 'user', content: request.templateMode ? buildTemplateUserPrompt(request) : buildUserPrompt(request) }],
       }),
@@ -203,24 +266,84 @@ export async function generateClaudePrompts(request: ClaudeRequest): Promise<Cla
     throw new Error(`Claude API 请求失败 (${response.status})：${detail.slice(0, 300)}`);
   }
 
-  let result: {
-    content?: Array<{ type: string; text?: string }>;
-    usage?: { input_tokens?: number; output_tokens?: number };
-  };
-  try {
-    result = (await response.json()) as typeof result;
-  } catch (jsonError) {
-    console.error('[claudeClient] JSON parse failed:', jsonError);
-    throw new Error('Claude API 响应解析失败：返回内容不是有效的 JSON');
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+  if (!contentType.includes('text/event-stream')) {
+    return readJsonResponse(response, request, startedAt, options);
   }
 
-  const text = (result.content ?? []).filter((item) => item.type === 'text').map((item) => item.text ?? '').join('');
+  if (!response.body) {
+    throw new Error('Claude API 返回了空响应流');
+  }
+
+  const streamState: ClaudeStreamUpdate = {
+    event: 'message_start',
+    rawText: '',
+    inputTokens: 0,
+    outputTokens: 0,
+    model: request.secureSettings.claudeModel,
+  };
+
+  try {
+    await readSseStream(response.body, (message) => {
+      if (!message.data.trim() || message.event === 'ping') return;
+
+      let payload: Record<string, unknown>;
+      try {
+        payload = JSON.parse(message.data) as Record<string, unknown>;
+      } catch (parseError) {
+        console.error('[claudeClient] SSE payload parse failed:', parseError, message.data);
+        throw new Error('Claude API 流式响应解析失败：收到无效事件数据');
+      }
+
+      if (message.event === 'error') {
+        const error = payload.error as { message?: string } | undefined;
+        throw new Error(`Claude API 流式响应异常：${error?.message ?? message.data}`);
+      }
+
+      if (message.event === 'message_start') {
+        const messagePayload = payload.message as {
+          model?: string;
+          usage?: { input_tokens?: number; output_tokens?: number };
+        } | undefined;
+        streamState.model = messagePayload?.model ?? streamState.model;
+        streamState.inputTokens = messagePayload?.usage?.input_tokens ?? streamState.inputTokens;
+        streamState.outputTokens = messagePayload?.usage?.output_tokens ?? streamState.outputTokens;
+      }
+
+      if (message.event === 'content_block_start') {
+        const contentBlock = payload.content_block as { type?: string; text?: string } | undefined;
+        if (contentBlock?.type === 'text' && contentBlock.text) {
+          streamState.rawText += contentBlock.text;
+        }
+      }
+
+      if (message.event === 'content_block_delta') {
+        const delta = payload.delta as { type?: string; text?: string } | undefined;
+        if (delta?.type === 'text_delta' && delta.text) {
+          streamState.rawText += delta.text;
+        }
+      }
+
+      if (message.event === 'message_delta') {
+        const usage = payload.usage as { input_tokens?: number; output_tokens?: number } | undefined;
+        if (typeof usage?.input_tokens === 'number') streamState.inputTokens = usage.input_tokens;
+        if (typeof usage?.output_tokens === 'number') streamState.outputTokens = usage.output_tokens;
+      }
+
+      streamState.event = message.event;
+      emitUpdate(options, { ...streamState });
+    });
+  } catch (streamError) {
+    const message = streamError instanceof Error ? streamError.message : String(streamError);
+    throw new Error(`Claude API 流式请求失败：${message}`);
+  }
 
   return {
-    figures: parseClaudeContent(text).slice(0, request.maxCount),
-    inputTokens: result.usage?.input_tokens ?? 0,
-    outputTokens: result.usage?.output_tokens ?? 0,
-    model: request.secureSettings.claudeModel,
+    figures: parseClaudeContent(streamState.rawText).slice(0, request.maxCount),
+    rawText: streamState.rawText,
+    inputTokens: streamState.inputTokens,
+    outputTokens: streamState.outputTokens,
+    model: streamState.model,
     durationMs: Math.round(performance.now() - startedAt),
   };
 }

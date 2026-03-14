@@ -9,6 +9,17 @@ import { settingsService } from './settingsService';
 import { mutateSnapshot, readSnapshot } from './storage';
 import { usageService } from './usageService';
 
+export type PromptGenerationPhase = 'preparing' | 'requesting' | 'streaming' | 'saving' | 'completed';
+
+export interface PromptGenerationProgress {
+  phase: PromptGenerationPhase;
+  message: string;
+  rawText: string;
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
 function buildTemplatePrompt(input: {
   projectName: string;
   paperField?: string;
@@ -65,7 +76,19 @@ export class PromptService {
     customRequest?: string;
     maxCount: number;
     templateMode: boolean;
+  }, options?: {
+    onProgress?: (progress: PromptGenerationProgress) => void;
   }): Promise<PromptRecord[]> {
+    const emitProgress = (progress: PromptGenerationProgress) => {
+      options?.onProgress?.(progress);
+    };
+
+    emitProgress({
+      phase: 'preparing',
+      message: '正在整理文档与配色上下文...',
+      rawText: '',
+    });
+
     const project = await projectService.getProject(input.projectId);
     if (!project) throw new Error('项目不存在');
 
@@ -132,6 +155,11 @@ export class PromptService {
     let claudeUsage: { inputTokens: number; outputTokens: number; model: string; durationMs: number } | undefined;
 
     if (input.templateMode) {
+      emitProgress({
+        phase: 'requesting',
+        message: '模板模式下正在直接组装提示词...',
+        rawText: '',
+      });
       prompts = figureTypes.slice(0, input.maxCount).map((figureType, index) => {
         const meta = FIGURE_TYPE_OPTIONS.find((item) => item.id === figureType);
         return {
@@ -161,6 +189,12 @@ export class PromptService {
     } else {
       const secureSettings = await settingsService.getSecureSettings();
       if (!secureSettings.claudeApiKey.trim()) throw new Error('Claude API Key 未配置');
+      emitProgress({
+        phase: 'requesting',
+        message: '正在连接 Claude 并等待首个增量返回...',
+        rawText: '',
+        model: secureSettings.claudeModel,
+      });
       const response = await generateClaudePrompts({
         secureSettings,
         sections: scopedSections,
@@ -170,6 +204,17 @@ export class PromptService {
         maxCount: input.maxCount,
         customRequest: input.customRequest,
         templateMode: false,
+      }, {
+        onUpdate: (update) => {
+          emitProgress({
+            phase: update.rawText ? 'streaming' : 'requesting',
+            message: update.rawText ? 'Claude 正在流式输出提示词...' : 'Claude 已连接，等待首个内容块...',
+            rawText: update.rawText,
+            model: update.model,
+            inputTokens: update.inputTokens,
+            outputTokens: update.outputTokens,
+          });
+        },
       });
       claudeUsage = {
         inputTokens: response.inputTokens,
@@ -195,6 +240,23 @@ export class PromptService {
         createdAt: timestamp,
         updatedAt: timestamp,
       }));
+
+      emitProgress({
+        phase: 'saving',
+        message: 'Claude 已返回完整内容，正在保存到本地项目...',
+        rawText: response.rawText,
+        model: response.model,
+        inputTokens: response.inputTokens,
+        outputTokens: response.outputTokens,
+      });
+    }
+
+    if (input.templateMode) {
+      emitProgress({
+        phase: 'saving',
+        message: '模板草案已生成，正在写入本地项目...',
+        rawText: prompts.map((prompt, index) => `# ${index + 1} ${prompt.title}\n\n${prompt.originalPrompt ?? ''}`).join('\n\n'),
+      });
     }
 
     await mutateSnapshot((snapshot) => {
@@ -215,6 +277,15 @@ export class PromptService {
         isSuccess: true,
       });
     }
+
+    emitProgress({
+      phase: 'completed',
+      message: input.templateMode ? `已生成 ${prompts.length} 条模板草案` : `已生成 ${prompts.length} 条 Claude 提示词`,
+      rawText: prompts.map((prompt, index) => `# ${index + 1} ${prompt.title}\n\n${prompt.originalPrompt ?? ''}`).join('\n\n'),
+      model: claudeUsage?.model,
+      inputTokens: claudeUsage?.inputTokens,
+      outputTokens: claudeUsage?.outputTokens,
+    });
 
     return prompts;
   }
