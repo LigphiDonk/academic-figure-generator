@@ -47,7 +47,7 @@ AI 驱动的学术论文配图生成平台。上传论文 → AI 分析内容生
 
 | 功能 | 说明 |
 |------|------|
-| 🤖 **智能 Prompt 生成** | 上传 PDF/DOCX/TXT 论文，Claude AI 自动分析内容并生成配图描述 |
+| 🤖 **智能 Prompt 生成** | 上传 PDF/DOCX/TXT 论文，提示词生成 AI 自动分析内容并生成配图描述 |
 | 🖼️ **高质量配图** | 支持 1K/2K/4K 多分辨率，16:9/4:3/1:1 等多种比例 |
 | 🎨 **配色方案** | 50+ 预设学术配色（含色盲友好方案），支持自定义配色 |
 | ✏️ **图生图编辑** | 基于已有图片 + 文字指令进行二次编辑 |
@@ -55,7 +55,7 @@ AI 驱动的学术论文配图生成平台。上传论文 → AI 分析内容生
 | 🖥️ **桌面端应用** | 已更新桌面端版本，提供更适合本地使用的学术配图生成体验 |
 | 📁 **项目管理** | 按项目组织论文、Prompt 和配图 |
 | 👥 **多用户** | 完整的注册/登录体系，支持 Linux DO OAuth 登录 |
-| 🔑 **BYOK** | 用户可配置自己的 API Key（Claude / NanoBanana），也可使用平台统一 Key |
+| 🔑 **BYOK** | 用户可配置自己的 API Key（Anthropic / OpenAI Compatible / NanoBanana），也可使用平台统一 Key |
 | 💰 **计费系统** | 统一余额 (CNY) 计费，支持 Linux DO 积分自助充值 |
 | 🛠️ **管理后台** | API Key 管理、计费配置、用户管理、用量统计 |
 
@@ -134,7 +134,7 @@ AI:  [直接使用方案C生成网络架构图提示词]
 | 前端 | React 19 · TypeScript · Vite · Tailwind CSS · Radix UI |
 | 数据库 | PostgreSQL 16 · Redis 7 |
 | 存储 | MinIO (S3 兼容) |
-| AI | Claude API (Prompt 生成) · NanoBanana API (配图生成) |
+| AI | Prompt AI（Anthropic / OpenAI Compatible，用于 Prompt 生成）· NanoBanana API（用于配图生成） |
 | 桌面端 | Desktop App（与仓库内 `desktop/` 目录对应） |
 | 部署 | Docker Compose · Nginx |
 
@@ -184,7 +184,7 @@ academic-figure-generator/
 ### 前置要求
 
 - [Docker](https://docs.docker.com/get-docker/) 和 [Docker Compose](https://docs.docker.com/compose/install/)
-- 至少一个 AI API Key（Claude 或 NanoBanana，可部署后在管理后台配置）
+- 至少一个 AI API Key（Prompt AI 或 NanoBanana，可部署后在管理后台配置）
 
 ### 1. 克隆仓库
 
@@ -246,7 +246,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 
 1. 使用默认管理员账号登录：`admin@admin.com` / `admin`
 2. 进入 **系统管理** 页面，配置：
-   - **Claude API Key** — 用于 Prompt 生成
+   - **提示词生成 AI** — 用于 Prompt 生成，可选择 `anthropic` 或 `openai-compatible`
    - **NanoBanana API Key** — 用于配图生成
    - **计费参数** — 图片单价、汇率等
 3. （可选）配置 Linux DO OAuth 登录
@@ -262,7 +262,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 |--------|------|------|
 | 1（最高）| 用户 BYOK | 用户在「设置」页面自行配置的 Key |
 | 2 | 管理后台系统 Key | 管理员在「系统管理」中配置的平台统一 Key |
-| 3 | 环境变量 | `.env` 中的 `CLAUDE_API_KEY` / `NANOBANANA_API_KEY` |
+| 3 | 环境变量 | `.env` 中的 `PROMPT_AI_*` / `NANOBANANA_API_KEY` |
 
 所有 API Key 均使用 AES-256-GCM 加密存储，数据库中不存在明文 Key。
 
@@ -381,14 +381,14 @@ server {
             ├── MinIO (图片文件存储)
             │
             └── Celery Workers
-                 ├── Claude API → Prompt 生成
+                 ├── Prompt AI → Prompt 生成
                  └── NanoBanana API → 图片生成
 ```
 
 ### 核心流程
 
 1. **上传论文** → 后端解析 PDF/DOCX 提取文本和章节结构
-2. **生成 Prompt** → Celery 任务调用 Claude API，分析论文内容生成配图描述
+2. **生成 Prompt** → Celery 任务调用 Prompt AI，分析论文内容生成配图描述
 3. **生成配图** → 用户确认/编辑 Prompt 后，Celery 任务调用 NanoBanana API 生成图片
 4. **实时反馈** → SSE 推送生成进度，前端实时更新状态
 5. **下载管理** → 图片存储在 MinIO，通过预签名 URL 下载
@@ -412,8 +412,11 @@ server {
 | `MINIO_ENDPOINT` | 否 | `minio:9000` | MinIO 地址 |
 | `MINIO_ACCESS_KEY` | 否 | `minioadmin` | MinIO Access Key |
 | `MINIO_BUCKET_NAME` | 否 | `academic-figures` | MinIO 存储桶名 |
-| `CLAUDE_API_KEY` | 否 | — | Claude API Key（可在管理后台配置） |
-| `CLAUDE_MODEL` | 否 | `claude-sonnet-4-20250514` | Claude 模型 |
+| `PROMPT_AI_PROVIDER` | 否 | `anthropic` | 提示词生成 Provider，支持 `anthropic` / `openai-compatible` |
+| `PROMPT_AI_API_KEY` | 否 | — | 提示词生成 API Key（可在管理后台配置） |
+| `PROMPT_AI_API_BASE_URL` | 否 | `""` | 提示词生成 API 基础地址，留空使用 Provider 默认值 |
+| `PROMPT_AI_MODEL` | 否 | `claude-sonnet-4-20250514` | 提示词生成模型 |
+| `PROMPT_AI_MAX_TOKENS` | 否 | `8192` | 提示词生成最大输出 Tokens |
 | `NANOBANANA_API_KEY` | 否 | — | NanoBanana API Key（可在管理后台配置） |
 | `NANOBANANA_API_BASE` | 否 | `https://api.ikuncode.cc` | NanoBanana API 地址 |
 | `CORS_ORIGINS` | 否 | `["http://localhost:3000","http://localhost:5173"]` | CORS 允许来源 |
