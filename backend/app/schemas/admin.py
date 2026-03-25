@@ -18,7 +18,7 @@ class AdminUserResponse(BaseModel):
     is_admin: bool
     balance_cny: float
     nanobanana_images_quota: int
-    claude_tokens_quota: int
+    prompt_ai_tokens_quota: int
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -48,7 +48,7 @@ class AdminUserUpdate(BaseModel):
     is_active: bool | None = None
     is_admin: bool | None = None
     nanobanana_images_quota: int | None = None
-    claude_tokens_quota: int | None = None
+    prompt_ai_tokens_quota: int | None = None
     balance_cny: float | None = None
 
 

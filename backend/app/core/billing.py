@@ -8,17 +8,17 @@ from decimal import Decimal
 class Pricing:
     image_price_cny: Decimal
     usd_cny_rate: Decimal
-    claude_input_usd_per_million: Decimal
-    claude_output_usd_per_million: Decimal
+    prompt_ai_input_usd_per_million: Decimal
+    prompt_ai_output_usd_per_million: Decimal
 
 
-def compute_claude_cost_usd(
+def compute_prompt_ai_cost_usd(
     input_tokens: int,
     output_tokens: int,
     input_usd_per_million: Decimal,
     output_usd_per_million: Decimal,
 ) -> Decimal:
-    """Compute Claude cost in USD using per-1M token pricing."""
+    """按每百万 token 单价计算文本模型成本。"""
     in_cost = (Decimal(input_tokens) / Decimal(1_000_000)) * input_usd_per_million
     out_cost = (Decimal(output_tokens) / Decimal(1_000_000)) * output_usd_per_million
     return in_cost + out_cost
@@ -34,4 +34,3 @@ def cny_to_usd(cny: Decimal, usd_cny_rate: Decimal) -> Decimal:
     if usd_cny_rate <= 0:
         return Decimal("0")
     return cny / usd_cny_rate
-

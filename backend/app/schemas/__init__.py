@@ -29,6 +29,11 @@ from app.schemas.image import (
     ImageResponse,
     ImageStatusResponse,
 )
+from app.schemas.nanobanana import (
+    NanoBananaModelOptionResponse,
+    NanoBananaModelsProbeRequest,
+    NanoBananaModelsResponse,
+)
 from app.schemas.project import (
     ProjectCreate,
     ProjectListResponse,
@@ -40,6 +45,11 @@ from app.schemas.prompt import (
     PromptResponse,
     PromptStatusResponse,
     PromptUpdate,
+)
+from app.schemas.prompt_ai import (
+    PromptAIModelOptionResponse,
+    PromptAIModelsProbeRequest,
+    PromptAIModelsResponse,
 )
 from app.schemas.usage import (
     UsageBreakdown,
@@ -69,12 +79,18 @@ __all__ = [
     "PromptResponse",
     "PromptUpdate",
     "PromptStatusResponse",
+    "PromptAIModelsProbeRequest",
+    "PromptAIModelOptionResponse",
+    "PromptAIModelsResponse",
     # image
     "ImageGenerateRequest",
     "ImageDirectGenerateRequest",
     "ImageEditRequest",
     "ImageResponse",
     "ImageStatusResponse",
+    "NanoBananaModelsProbeRequest",
+    "NanoBananaModelOptionResponse",
+    "NanoBananaModelsResponse",
     # color_scheme
     "ColorValues",
     "ColorSchemeCreate",

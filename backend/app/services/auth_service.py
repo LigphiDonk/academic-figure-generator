@@ -166,7 +166,7 @@ class AuthService:
 
         Accepted keyword arguments:
             display_name, default_color_scheme, default_resolution,
-            default_aspect_ratio, claude_api_key, nanobanana_api_key
+            default_aspect_ratio, prompt_ai_api_key, nanobanana_api_key
 
         API keys are encrypted before storage. Pass an empty string to
         clear a stored API key.
@@ -184,14 +184,14 @@ class AuthService:
             if field in kwargs and kwargs[field] is not None:
                 setattr(user, field, kwargs[field])
 
-        # Encrypt and store BYOK Claude API key
-        if "claude_api_key" in kwargs:
-            raw_key = kwargs["claude_api_key"]
+        # Encrypt and store BYOK Prompt AI API key
+        if "prompt_ai_api_key" in kwargs:
+            raw_key = kwargs["prompt_ai_api_key"]
             if raw_key:
-                user.claude_api_key_enc = encrypt_api_key(raw_key)
+                user.prompt_ai_api_key_enc = encrypt_api_key(raw_key)
             else:
                 # Empty string means clear the key
-                user.claude_api_key_enc = None
+                user.prompt_ai_api_key_enc = None
 
         # Encrypt and store BYOK NanoBanana API key
         if "nanobanana_api_key" in kwargs:
@@ -213,21 +213,21 @@ class AuthService:
     @staticmethod
     def get_user_api_key_info(user: User) -> dict:
         """Return masked API key info for the user profile response."""
-        claude_set = user.claude_api_key_enc is not None
+        prompt_ai_set = user.prompt_ai_api_key_enc is not None
         nanobanana_set = user.nanobanana_api_key_enc is not None
 
         info: dict = {
-            "claude_api_key_set": claude_set,
+            "prompt_ai_api_key_set": prompt_ai_set,
             "nanobanana_api_key_set": nanobanana_set,
         }
 
-        if claude_set:
+        if prompt_ai_set:
             try:
-                info["claude_api_key_masked"] = mask_api_key(
-                    decrypt_api_key(user.claude_api_key_enc)
+                info["prompt_ai_api_key_masked"] = mask_api_key(
+                    decrypt_api_key(user.prompt_ai_api_key_enc)
                 )
             except ValueError:
-                info["claude_api_key_masked"] = "****"
+                info["prompt_ai_api_key_masked"] = "****"
 
         if nanobanana_set:
             try:
@@ -243,7 +243,7 @@ class AuthService:
     def get_decrypted_api_key(user: User, key_name: str) -> str | None:
         """Decrypt and return a user's stored API key, or None if not set.
 
-        key_name: 'claude' or 'nanobanana'
+        key_name: 'prompt_ai' or 'nanobanana'
         """
         enc_field = f"{key_name}_api_key_enc"
         enc_value = getattr(user, enc_field, None)

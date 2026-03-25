@@ -48,7 +48,12 @@ class UsageLog(Base):
     api_name: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-        comment="claude/nanobanana",
+        comment="prompt_ai/nanobanana",
+    )
+    provider: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="Prompt AI provider for text generation records",
     )
     api_endpoint: Mapped[Optional[str]] = mapped_column(
         String(200),
@@ -62,9 +67,10 @@ class UsageLog(Base):
         Integer,
         nullable=True,
     )
-    claude_model: Mapped[Optional[str]] = mapped_column(
+    model: Mapped[Optional[str]] = mapped_column(
         String(50),
         nullable=True,
+        comment="Prompt AI model for text generation records",
     )
     resolution: Mapped[Optional[str]] = mapped_column(
         String(10),

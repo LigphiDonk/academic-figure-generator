@@ -12,8 +12,8 @@ import { Coins, Image as ImageIcon, MessageSquare, Plus, CheckCircle2, Loader2 }
 type UsageSummary = {
     billing_period: string;
     balance_cny: number;
-    claude_tokens_used: number;
-    claude_calls: number;
+    prompt_ai_tokens_used: number;
+    prompt_ai_calls: number;
     nanobanana_images: number;
     period_spend_cny: number;
     total_spend_cny: number;
@@ -21,6 +21,8 @@ type UsageSummary = {
 
 type UsageBreakdownItem = {
     api_name: string;
+    provider: string | null;
+    model: string | null;
     total_calls: number;
     success_count: number;
     failure_count: number;
@@ -31,7 +33,7 @@ type UsageBreakdownItem = {
 
 type UsageHistoryPoint = {
     date: string;
-    claude_tokens: number;
+    prompt_ai_tokens: number;
     nanobanana_images: number;
     cost_cny: number;
 };
@@ -164,6 +166,14 @@ export function Usage() {
         ? (parseFloat(rechargeAmount) * payConfig.credits_per_cny).toFixed(2)
         : null;
 
+    const formatUsageName = (item: UsageBreakdownItem) => {
+        if (item.api_name === 'prompt_ai') {
+            const provider = item.provider || 'unknown';
+            return item.model ? `prompt_ai / ${provider} / ${item.model}` : `prompt_ai / ${provider}`;
+        }
+        return item.model ? `${item.api_name} / ${item.model}` : item.api_name;
+    };
+
     if (isLoading && !summary) return <div className="p-8">加载用量数据中...</div>;
 
     return (
@@ -210,12 +220,12 @@ export function Usage() {
 
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Claude Token 消耗</CardTitle>
+                        <CardTitle className="text-sm font-medium">提示词生成 Token 消耗</CardTitle>
                         <MessageSquare className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{(summary?.claude_tokens_used || 0).toLocaleString()}</div>
-                        <p className="text-xs text-muted-foreground mt-1">调用次数：{summary?.claude_calls || 0}</p>
+                        <div className="text-2xl font-bold">{(summary?.prompt_ai_tokens_used || 0).toLocaleString()}</div>
+                        <p className="text-xs text-muted-foreground mt-1">调用次数：{summary?.prompt_ai_calls || 0}</p>
                     </CardContent>
                 </Card>
 
@@ -257,7 +267,7 @@ export function Usage() {
                                 <TableBody>
                                     {breakdown.map((item, idx) => (
                                         <TableRow key={idx}>
-                                            <TableCell className="font-medium">{item.api_name}</TableCell>
+                                            <TableCell className="font-medium">{formatUsageName(item)}</TableCell>
                                             <TableCell className="text-right">{item.total_calls}</TableCell>
                                             <TableCell className="text-right">
                                                 {item.total_calls > 0 ? Math.round((item.success_count / item.total_calls) * 100) : 0}%
@@ -286,7 +296,7 @@ export function Usage() {
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>日期</TableHead>
-                                        <TableHead className="text-right">Claude Tokens</TableHead>
+                                        <TableHead className="text-right">提示词生成 Tokens</TableHead>
                                         <TableHead className="text-right">图片</TableHead>
                                         <TableHead className="text-right">花费（¥）</TableHead>
                                     </TableRow>
@@ -302,7 +312,7 @@ export function Usage() {
                                         history.map((p, idx) => (
                                             <TableRow key={idx}>
                                                 <TableCell>{p.date}</TableCell>
-                                                <TableCell className="text-right">{(p.claude_tokens || 0).toLocaleString()}</TableCell>
+                                                <TableCell className="text-right">{(p.prompt_ai_tokens || 0).toLocaleString()}</TableCell>
                                                 <TableCell className="text-right">{p.nanobanana_images || 0}</TableCell>
                                                 <TableCell className="text-right">¥{(p.cost_cny || 0).toFixed(2)}</TableCell>
                                             </TableRow>

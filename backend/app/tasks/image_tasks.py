@@ -49,6 +49,10 @@ from sqlalchemy.orm import Session
 
 from app.core.billing import cny_to_usd
 from app.core.security import decrypt_api_key
+from app.services.nanobanana_service import (
+    NanoBananaConfigLayer,
+    resolve_nanobanana_settings,
+)
 from app.tasks.celery_app import celery_app
 from app.tasks.db import _get_session
 
@@ -231,6 +235,22 @@ def _get_system_nanobanana_settings(db: Session) -> tuple[str | None, str | None
             "SELECT nanobanana_api_key_enc, nanobanana_api_base_url, nanobanana_model "
             "FROM system_settings WHERE id = 1"
         )
+    ).fetchone()
+    if not row:
+        return None, None, None
+    return row[0], row[1], row[2]
+
+
+def _get_user_nanobanana_settings(
+    db: Session, user_id: str
+) -> tuple[str | None, str | None, str | None]:
+    """Fetch user NanoBanana settings (encrypted key + base URL + model) from DB."""
+    row = db.execute(
+        text(
+            "SELECT nanobanana_api_key_enc, nanobanana_api_base_url, nanobanana_model "
+            "FROM users WHERE id = :uid"
+        ),
+        {"uid": user_id},
     ).fetchone()
     if not row:
         return None, None, None
@@ -437,28 +457,42 @@ def generate_image_task(
         # ------------------------------------------------------------------
         # 2. Resolve API key (BYOK > platform)
         # ------------------------------------------------------------------
-        byok_result = db.execute(
-            text("SELECT nanobanana_api_key_enc FROM users WHERE id = :uid"),
-            {"uid": user_id},
+        encrypted_key, user_api_base_url, user_model = _get_user_nanobanana_settings(
+            db, user_id
         )
-        byok_row = byok_result.fetchone()
-        encrypted_key = byok_row[0] if byok_row else None
         system_key_enc, system_api_base_url, system_model = _get_system_nanobanana_settings(db)
-        effective_api_base_url = system_api_base_url or NANOBANANA_API_BASE
-        effective_model = (system_model or NANOBANANA_MODEL or "gemini-3-pro-image-preview").strip()
+        resolved_settings = resolve_nanobanana_settings(
+            user_layer=NanoBananaConfigLayer(
+                api_key=decrypt_api_key(encrypted_key) if encrypted_key else None,
+                api_base_url=user_api_base_url,
+                model=user_model,
+            ),
+            system_layer=NanoBananaConfigLayer(
+                api_key=decrypt_api_key(system_key_enc) if system_key_enc else None,
+                api_base_url=system_api_base_url,
+                model=system_model,
+            ),
+            env_layer=NanoBananaConfigLayer(
+                api_key=NANOBANANA_API_KEY,
+                api_base_url=NANOBANANA_API_BASE,
+                model=NANOBANANA_MODEL,
+            ),
+        )
+        effective_api_base_url = resolved_settings.api_base_url
+        effective_model = resolved_settings.model.strip()
 
         if encrypted_key:
-            api_key = decrypt_api_key(encrypted_key)
+            api_key = resolved_settings.api_key
             key_source = "byok"
             logger.info("Using BYOK NanoBanana key for user_id=%s", user_id)
-        elif NANOBANANA_API_KEY:
-            api_key = NANOBANANA_API_KEY
-            key_source = "platform"
-            logger.info("Using platform NanoBanana key from env")
         elif system_key_enc:
-            api_key = decrypt_api_key(system_key_enc)
+            api_key = resolved_settings.api_key
             key_source = "platform"
             logger.info("Using platform NanoBanana key from system settings")
+        elif NANOBANANA_API_KEY:
+            api_key = resolved_settings.api_key
+            key_source = "platform"
+            logger.info("Using platform NanoBanana key from env")
         else:
             raise ValueError(
                 "No NanoBanana API key available: set NANOBANANA_API_KEY env var, "

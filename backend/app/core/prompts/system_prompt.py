@@ -1,5 +1,5 @@
 """
-Academic figure system prompt for Claude API.
+Academic figure system prompt for Prompt AI providers.
 
 This is the core IP of the academic-figure-generator service. The prompt
 encodes a comprehensive methodology for producing publication-quality figure
@@ -8,6 +8,7 @@ prompts that AI image generators can render into polished academic illustrations
 Usage:
     from app.core.prompts.system_prompt import ACADEMIC_FIGURE_SYSTEM_PROMPT
 
+    # Example request body for Anthropic-compatible message APIs:
     payload = {
         "model": "claude-sonnet-4-20250514",
         "system": ACADEMIC_FIGURE_SYSTEM_PROMPT,

@@ -1,16 +1,28 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
+import { PromptAIModelField, type PromptAIModelOption } from '../components/PromptAIModelField';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { RefreshCw, CheckCircle2, Lock, ScanText } from 'lucide-react';
+
+type PromptAIProvider = 'anthropic' | 'openai-compatible';
 
 export function Settings() {
     const { user, updateUser } = useAuthStore();
     const [isLoading, setIsLoading] = useState(false);
     const [success, setSuccess] = useState('');
+    const [isFetchingPromptAiModels, setIsFetchingPromptAiModels] = useState(false);
+    const [promptAiModels, setPromptAiModels] = useState<PromptAIModelOption[]>([]);
+    const [promptAiModelsMessage, setPromptAiModelsMessage] = useState('');
+    const [promptAiModelsError, setPromptAiModelsError] = useState('');
+    const [isFetchingNanoBananaModels, setIsFetchingNanoBananaModels] = useState(false);
+    const [nanoBananaModels, setNanoBananaModels] = useState<PromptAIModelOption[]>([]);
+    const [nanoBananaModelsMessage, setNanoBananaModelsMessage] = useState('');
+    const [nanoBananaModelsError, setNanoBananaModelsError] = useState('');
 
     const [passwordData, setPasswordData] = useState({
         current_password: '',
@@ -23,10 +35,13 @@ export function Settings() {
 
     const [formData, setFormData] = useState({
         display_name: user?.display_name || '',
-        claude_api_key: '',
+        prompt_ai_provider: user?.prompt_ai_provider || 'anthropic',
+        prompt_ai_api_key: '',
+        prompt_ai_model: user?.prompt_ai_model || '',
         nanobanana_api_key: '',
+        nanobanana_model: user?.nanobanana_model || '',
         paddleocr_api_key: '',
-        claude_api_base_url: user?.claude_api_base_url || '',
+        prompt_ai_api_base_url: user?.prompt_ai_api_base_url || '',
         nanobanana_api_base_url: user?.nanobanana_api_base_url || '',
         paddleocr_server_url: user?.paddleocr_server_url || '',
     });
@@ -40,12 +55,27 @@ export function Settings() {
             setFormData(prev => ({
                 ...prev,
                 display_name: user.display_name,
-                claude_api_base_url: user.claude_api_base_url || '',
+                prompt_ai_provider: user.prompt_ai_provider || 'anthropic',
+                prompt_ai_model: user.prompt_ai_model || '',
+                nanobanana_model: user.nanobanana_model || '',
+                prompt_ai_api_base_url: user.prompt_ai_api_base_url || '',
                 nanobanana_api_base_url: user.nanobanana_api_base_url || '',
                 paddleocr_server_url: user.paddleocr_server_url || '',
             }));
         }
     }, [user]);
+
+    useEffect(() => {
+        setPromptAiModels([]);
+        setPromptAiModelsMessage('');
+        setPromptAiModelsError('');
+    }, [formData.prompt_ai_provider, formData.prompt_ai_api_base_url, formData.prompt_ai_api_key]);
+
+    useEffect(() => {
+        setNanoBananaModels([]);
+        setNanoBananaModelsMessage('');
+        setNanoBananaModelsError('');
+    }, [formData.nanobanana_api_base_url, formData.nanobanana_api_key]);
 
     const handleSave = async () => {
         setIsLoading(true);
@@ -53,11 +83,14 @@ export function Settings() {
         try {
             const payload: any = {
                 display_name: formData.display_name,
-                claude_api_base_url: formData.claude_api_base_url || null,
+                prompt_ai_provider: formData.prompt_ai_provider,
+                prompt_ai_api_base_url: formData.prompt_ai_api_base_url || null,
+                prompt_ai_model: formData.prompt_ai_model || null,
                 nanobanana_api_base_url: formData.nanobanana_api_base_url || null,
+                nanobanana_model: formData.nanobanana_model || null,
             };
 
-            if (formData.claude_api_key) payload.claude_api_key = formData.claude_api_key;
+            if (formData.prompt_ai_api_key) payload.prompt_ai_api_key = formData.prompt_ai_api_key;
             if (formData.nanobanana_api_key) payload.nanobanana_api_key = formData.nanobanana_api_key;
 
             const res = await api.put('/auth/me', payload);
@@ -65,7 +98,7 @@ export function Settings() {
             setSuccess('设置保存成功！');
 
             // Clear api keys from form data after save
-            setFormData(prev => ({ ...prev, claude_api_key: '', nanobanana_api_key: '' }));
+            setFormData(prev => ({ ...prev, prompt_ai_api_key: '', nanobanana_api_key: '' }));
             setOcrSuccess('');
             setOcrError('');
         } catch (e) {
@@ -125,6 +158,55 @@ export function Settings() {
             setPasswordError(err.response?.data?.detail || '密码修改失败，请重试');
         } finally {
             setPasswordLoading(false);
+        }
+    };
+
+    const handleFetchPromptAiModels = async () => {
+        setIsFetchingPromptAiModels(true);
+        setPromptAiModels([]);
+        setPromptAiModelsMessage('');
+        setPromptAiModelsError('');
+        try {
+            const res = await api.post('/auth/me/prompt-ai/models', {
+                prompt_ai_provider: formData.prompt_ai_provider,
+                prompt_ai_api_key: formData.prompt_ai_api_key || null,
+                prompt_ai_api_base_url: formData.prompt_ai_api_base_url || null,
+            });
+            const models: PromptAIModelOption[] = Array.isArray(res.data?.models) ? res.data.models : [];
+            setPromptAiModels(models);
+            setPromptAiModelsMessage(
+                models.length > 0
+                    ? `已拉取 ${models.length} 个模型，可直接选择，也可以继续手动输入。`
+                    : '当前配置未返回可用模型，仍可手动输入模型名称。'
+            );
+        } catch (err: any) {
+            setPromptAiModelsError(err.response?.data?.detail || '拉取模型失败，请检查 Provider、API Key 和请求地址。');
+        } finally {
+            setIsFetchingPromptAiModels(false);
+        }
+    };
+
+    const handleFetchNanoBananaModels = async () => {
+        setIsFetchingNanoBananaModels(true);
+        setNanoBananaModels([]);
+        setNanoBananaModelsMessage('');
+        setNanoBananaModelsError('');
+        try {
+            const res = await api.post('/auth/me/nanobanana/models', {
+                nanobanana_api_key: formData.nanobanana_api_key || null,
+                nanobanana_api_base_url: formData.nanobanana_api_base_url || null,
+            });
+            const models: PromptAIModelOption[] = Array.isArray(res.data?.models) ? res.data.models : [];
+            setNanoBananaModels(models);
+            setNanoBananaModelsMessage(
+                models.length > 0
+                    ? `已拉取 ${models.length} 个模型，可直接选择，也可以继续手动输入。`
+                    : '当前配置未返回可用模型，仍可手动输入模型名称。'
+            );
+        } catch (err: any) {
+            setNanoBananaModelsError(err.response?.data?.detail || '拉取模型失败，请检查 API Key 和请求地址。');
+        } finally {
+            setIsFetchingNanoBananaModels(false);
         }
     };
 
@@ -214,36 +296,66 @@ export function Settings() {
             <Card>
                 <CardHeader>
                     <CardTitle>BYOK API 配置</CardTitle>
-                    <CardDescription>绑定您自己的 API Key 和请求地址 (Bring Your Own Key)，优先使用自有配置。</CardDescription>
+                    <CardDescription>绑定您自己的提示词生成 AI 配置和配图服务配置，优先使用自有设置。</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                    {/* Claude Section */}
+                    {/* Prompt AI Section */}
                     <div className="space-y-3">
-                        <h4 className="text-sm font-semibold text-foreground">Claude API (Anthropic)</h4>
+                        <h4 className="text-sm font-semibold text-foreground">提示词生成 AI</h4>
+                        <div className="space-y-2">
+                            <Label>服务商</Label>
+                            <Select
+                                value={formData.prompt_ai_provider}
+                                onValueChange={value => setFormData({ ...formData, prompt_ai_provider: value as PromptAIProvider })}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="选择服务商" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="anthropic">Anthropic</SelectItem>
+                                    <SelectItem value="openai-compatible">OpenAI Compatible</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
                         <div className="space-y-2">
                             <div className="flex justify-between items-center">
-                                <Label htmlFor="claude">API Key</Label>
-                                {user.claude_api_key_set && (
+                                <Label htmlFor="prompt_ai_api_key">API Key</Label>
+                                {user.prompt_ai_api_key_set && (
                                     <span className="flex items-center text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full"><CheckCircle2 className="w-3 h-3 mr-1" /> 已配置</span>
                                 )}
                             </div>
                             <Input
-                                id="claude"
+                                id="prompt_ai_api_key"
                                 type="password"
-                                placeholder={user.claude_api_key_set ? "sk-ant-**** (通过 API 设置)" : "sk-ant-..."}
-                                value={formData.claude_api_key}
-                                onChange={e => setFormData({ ...formData, claude_api_key: e.target.value })}
+                                placeholder={user.prompt_ai_api_key_set ? "****** (已配置，输入新值以覆盖)" : formData.prompt_ai_provider === 'anthropic' ? "sk-ant-..." : "sk-..."}
+                                value={formData.prompt_ai_api_key}
+                                onChange={e => setFormData({ ...formData, prompt_ai_api_key: e.target.value })}
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="claude_url">请求地址</Label>
+                            <Label htmlFor="prompt_ai_url">请求地址</Label>
                             <Input
-                                id="claude_url"
-                                placeholder="https://api.anthropic.com （留空使用系统默认）"
-                                value={formData.claude_api_base_url}
-                                onChange={e => setFormData({ ...formData, claude_api_base_url: e.target.value })}
+                                id="prompt_ai_url"
+                                placeholder={formData.prompt_ai_provider === 'anthropic' ? "https://api.anthropic.com （留空使用系统默认）" : "https://api.openai.com （留空使用系统默认）"}
+                                value={formData.prompt_ai_api_base_url}
+                                onChange={e => setFormData({ ...formData, prompt_ai_api_base_url: e.target.value })}
                             />
-                            <p className="text-xs text-muted-foreground">如使用代理或中转服务，请填写 API 基础地址（不含 /v1/messages 路径）。</p>
+                            <p className="text-xs text-muted-foreground">如使用中转服务，请填写 API 基础地址，不要包含最终接口路径。</p>
+                        </div>
+                        <div className="space-y-2">
+                            <PromptAIModelField
+                                id="prompt_ai_model"
+                                label="模型名称"
+                                placeholder={formData.prompt_ai_provider === 'anthropic' ? "claude-sonnet-4-20250514" : "gpt-4.1-mini"}
+                                value={formData.prompt_ai_model}
+                                onChange={value => setFormData({ ...formData, prompt_ai_model: value })}
+                                onFetch={handleFetchPromptAiModels}
+                                isFetching={isFetchingPromptAiModels}
+                                models={promptAiModels}
+                                fetchHint="点击“拉取模型”会优先使用当前表单中的配置；若 API Key 留空，则回退到已保存的 BYOK 或系统默认配置。"
+                                message={promptAiModelsMessage}
+                                error={promptAiModelsError}
+                            />
                         </div>
                     </div>
 
@@ -276,6 +388,21 @@ export function Settings() {
                                 onChange={e => setFormData({ ...formData, nanobanana_api_base_url: e.target.value })}
                             />
                             <p className="text-xs text-muted-foreground">如使用代理或中转服务，请填写 API 基础地址。</p>
+                        </div>
+                        <div className="space-y-2">
+                            <PromptAIModelField
+                                id="nanobanana_model"
+                                label="模型名称"
+                                placeholder="gemini-3-pro-image-preview"
+                                value={formData.nanobanana_model}
+                                onChange={value => setFormData({ ...formData, nanobanana_model: value })}
+                                onFetch={handleFetchNanoBananaModels}
+                                isFetching={isFetchingNanoBananaModels}
+                                models={nanoBananaModels}
+                                fetchHint="点击“拉取模型”会优先使用当前表单中的配置；若 API Key 留空，则回退到已保存的 BYOK 或系统默认配置。"
+                                message={nanoBananaModelsMessage}
+                                error={nanoBananaModelsError}
+                            />
                         </div>
                     </div>
                 </CardContent>

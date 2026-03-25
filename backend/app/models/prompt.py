@@ -53,7 +53,7 @@ class Prompt(Base, TimestampMixin):
     original_prompt: Mapped[Optional[str]] = mapped_column(
         Text,
         nullable=True,
-        comment="Claude-generated prompt",
+        comment="AI-generated prompt",
     )
     edited_prompt: Mapped[Optional[str]] = mapped_column(
         Text,
@@ -73,9 +73,16 @@ class Prompt(Base, TimestampMixin):
         nullable=True,
         comment="Which document sections this prompt covers",
     )
-    claude_model: Mapped[Optional[str]] = mapped_column(
+    generator_provider: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="anthropic",
+        comment="Prompt generator provider",
+    )
+    generator_model: Mapped[Optional[str]] = mapped_column(
         String(50),
         nullable=True,
+        comment="Prompt generator model",
     )
     generation_task_id: Mapped[Optional[str]] = mapped_column(
         String(100),

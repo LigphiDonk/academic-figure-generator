@@ -1,14 +1,17 @@
 """Schemas for admin system settings."""
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
 class SystemSettingsResponse(BaseModel):
     """Response: global system settings (keys masked)."""
 
-    claude_api_key_set: bool = False
-    claude_api_base_url: str | None = None
-    claude_model: str | None = None
+    prompt_ai_provider: Literal["anthropic", "openai-compatible"] = "anthropic"
+    prompt_ai_api_key_set: bool = False
+    prompt_ai_api_base_url: str | None = None
+    prompt_ai_model: str | None = None
     nanobanana_api_key_set: bool = False
     nanobanana_api_base_url: str | None = None
     nanobanana_model: str | None = None
@@ -17,8 +20,8 @@ class SystemSettingsResponse(BaseModel):
     image_price_cny_2k: float | None = None
     image_price_cny_4k: float | None = None
     usd_cny_rate: float | None = None
-    claude_input_usd_per_million: float | None = None
-    claude_output_usd_per_million: float | None = None
+    prompt_ai_input_usd_per_million: float | None = None
+    prompt_ai_output_usd_per_million: float | None = None
     # Linux DO OAuth
     linuxdo_client_id: str | None = None
     linuxdo_client_secret_set: bool = False
@@ -32,9 +35,10 @@ class SystemSettingsResponse(BaseModel):
 class SystemSettingsUpdate(BaseModel):
     """Request body for updating system settings."""
 
-    claude_api_key: str | None = None
-    claude_api_base_url: str | None = None
-    claude_model: str | None = None
+    prompt_ai_provider: Literal["anthropic", "openai-compatible"] | None = None
+    prompt_ai_api_key: str | None = None
+    prompt_ai_api_base_url: str | None = None
+    prompt_ai_model: str | None = None
     nanobanana_api_key: str | None = None
     nanobanana_api_base_url: str | None = None
     nanobanana_model: str | None = None
@@ -43,8 +47,8 @@ class SystemSettingsUpdate(BaseModel):
     image_price_cny_2k: float | None = None
     image_price_cny_4k: float | None = None
     usd_cny_rate: float | None = None
-    claude_input_usd_per_million: float | None = None
-    claude_output_usd_per_million: float | None = None
+    prompt_ai_input_usd_per_million: float | None = None
+    prompt_ai_output_usd_per_million: float | None = None
     # Linux DO OAuth
     linuxdo_client_id: str | None = None
     linuxdo_client_secret: str | None = None
