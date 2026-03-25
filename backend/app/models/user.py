@@ -48,25 +48,41 @@ class User(Base, TimestampMixin):
         default=False,
         nullable=False,
     )
-    claude_api_key_enc: Mapped[Optional[str]] = mapped_column(
+    prompt_ai_provider: Mapped[str] = mapped_column(
+        String(50),
+        default="anthropic",
+        nullable=False,
+        comment="User-selected Prompt AI provider",
+    )
+    prompt_ai_api_key_enc: Mapped[Optional[str]] = mapped_column(
         Text,
         nullable=True,
-        comment="AES-256 encrypted BYOK Claude API key",
+        comment="AES-256 encrypted BYOK Prompt AI API key",
     )
     nanobanana_api_key_enc: Mapped[Optional[str]] = mapped_column(
         Text,
         nullable=True,
         comment="AES-256 encrypted BYOK Nanobanana API key",
     )
-    claude_api_base_url: Mapped[Optional[str]] = mapped_column(
+    prompt_ai_api_base_url: Mapped[Optional[str]] = mapped_column(
         String(500),
         nullable=True,
-        comment="User-custom Claude API base URL",
+        comment="User-custom Prompt AI API base URL",
+    )
+    prompt_ai_model: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="User-selected Prompt AI model",
     )
     nanobanana_api_base_url: Mapped[Optional[str]] = mapped_column(
         String(500),
         nullable=True,
         comment="User-custom NanoBanana API base URL",
+    )
+    nanobanana_model: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="User-selected NanoBanana model",
     )
     paddleocr_server_url: Mapped[Optional[str]] = mapped_column(
         String(500),
@@ -93,7 +109,7 @@ class User(Base, TimestampMixin):
         default="16:9",
         nullable=False,
     )
-    claude_tokens_quota: Mapped[int] = mapped_column(
+    prompt_ai_tokens_quota: Mapped[int] = mapped_column(
         Integer,
         default=0,
         nullable=False,

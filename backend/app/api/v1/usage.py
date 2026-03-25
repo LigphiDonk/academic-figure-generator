@@ -51,13 +51,13 @@ async def get_usage_summary(
 ):
     """Get usage summary for the given billing period.
 
-    Aggregates Claude token usage, NanoBanana image count, and cost.
+    Aggregates Prompt AI token usage, NanoBanana image count, and cost.
     """
     period = billing_period or _current_billing_period()
     usd_cny_rate = await _get_usd_cny_rate(db)
 
-    # Claude usage
-    claude_result = await db.execute(
+    # Prompt AI usage
+    prompt_ai_result = await db.execute(
         select(
             func.coalesce(func.sum(UsageLog.input_tokens + UsageLog.output_tokens), 0).label("tokens"),
             func.count().label("calls"),
@@ -65,12 +65,12 @@ async def get_usage_summary(
         .where(
             UsageLog.user_id == user.id,
             UsageLog.billing_period == period,
-            UsageLog.api_name == "claude",
+            UsageLog.api_name == "prompt_ai",
         )
     )
-    claude_row = claude_result.one()
-    claude_tokens_used: int = int(claude_row.tokens)
-    claude_calls: int = int(claude_row.calls)
+    prompt_ai_row = prompt_ai_result.one()
+    prompt_ai_tokens_used: int = int(prompt_ai_row.tokens)
+    prompt_ai_calls: int = int(prompt_ai_row.calls)
 
     # NanoBanana usage
     nano_result = await db.execute(
@@ -123,8 +123,8 @@ async def get_usage_summary(
     return UsageSummary(
         billing_period=period,
         balance_cny=float(user.balance_cny),
-        claude_tokens_used=claude_tokens_used,
-        claude_calls=claude_calls,
+        prompt_ai_tokens_used=prompt_ai_tokens_used,
+        prompt_ai_calls=prompt_ai_calls,
         nanobanana_images=nanobanana_images,
         period_spend_cny=round(period_cost_cny, 6),
         total_spend_cny=round(total_cost_cny, 6),
@@ -155,12 +155,12 @@ async def get_usage_history(
             func.coalesce(
                 func.sum(
                     case(
-                        (UsageLog.api_name == "claude", UsageLog.input_tokens + UsageLog.output_tokens),
+                        (UsageLog.api_name == "prompt_ai", UsageLog.input_tokens + UsageLog.output_tokens),
                         else_=0,
                     )
                 ),
                 0,
-            ).label("claude_tokens"),
+            ).label("prompt_ai_tokens"),
             func.count(
                 case(
                     (UsageLog.api_name == "nanobanana", UsageLog.id),
@@ -186,7 +186,7 @@ async def get_usage_history(
     data = [
         UsageHistoryPoint(
             date=row.period_start.strftime("%Y-%m-%d") if row.period_start else "",
-            claude_tokens=int(row.claude_tokens),
+            prompt_ai_tokens=int(row.prompt_ai_tokens),
             nanobanana_images=int(row.nanobanana_images),
             cost_cny=round(float(row.cost_cny), 6),
         )
@@ -209,6 +209,8 @@ async def get_usage_breakdown(
     result = await db.execute(
         select(
             UsageLog.api_name,
+            UsageLog.provider,
+            UsageLog.model,
             func.count().label("total_calls"),
             func.count(case((UsageLog.is_success.is_(True), 1))).label("success_count"),
             func.count(case((UsageLog.is_success.is_(False), 1))).label("failure_count"),
@@ -230,13 +232,15 @@ async def get_usage_breakdown(
             UsageLog.user_id == user.id,
             UsageLog.billing_period == period,
         )
-        .group_by(UsageLog.api_name)
+        .group_by(UsageLog.api_name, UsageLog.provider, UsageLog.model)
     )
     rows = result.all()
 
     return [
         UsageBreakdown(
             api_name=row.api_name,
+            provider=row.provider,
+            model=row.model,
             total_calls=int(row.total_calls),
             success_count=int(row.success_count),
             failure_count=int(row.failure_count),

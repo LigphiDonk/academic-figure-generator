@@ -7,7 +7,7 @@ class AdminUsageDailyPoint(BaseModel):
     date: date
     cost_cny: float
     images: int
-    claude_tokens: int
+    prompt_ai_tokens: int
 
 
 class AdminUsageSummary(BaseModel):
@@ -17,6 +17,5 @@ class AdminUsageSummary(BaseModel):
     period_cost_cny: float
     total_cost_cny: float
     period_images: int
-    period_claude_tokens: int
+    period_prompt_ai_tokens: int
     daily: list[AdminUsageDailyPoint]
-

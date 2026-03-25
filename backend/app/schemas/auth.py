@@ -1,3 +1,5 @@
+from typing import Literal
+
 from datetime import datetime
 from uuid import UUID
 
@@ -43,13 +45,16 @@ class UserResponse(BaseModel):
     default_color_scheme: str
     default_resolution: str
     default_aspect_ratio: str
-    claude_api_key_set: bool
+    prompt_ai_provider: Literal["anthropic", "openai-compatible"] = "anthropic"
+    prompt_ai_api_key_set: bool
+    prompt_ai_model: str | None = None
     nanobanana_api_key_set: bool
+    nanobanana_model: str | None = None
     paddleocr_api_key_set: bool = False
-    claude_api_base_url: str | None = None
+    prompt_ai_api_base_url: str | None = None
     nanobanana_api_base_url: str | None = None
     paddleocr_server_url: str | None = None
-    claude_tokens_quota: int
+    prompt_ai_tokens_quota: int
     nanobanana_images_quota: int
     linuxdo_id: int | None = None
     linuxdo_username: str | None = None
@@ -62,10 +67,13 @@ class UserUpdate(BaseModel):
     default_color_scheme: str | None = None
     default_resolution: str | None = None
     default_aspect_ratio: str | None = None
-    claude_api_key: str | None = None
+    prompt_ai_provider: Literal["anthropic", "openai-compatible"] | None = None
+    prompt_ai_api_key: str | None = None
+    prompt_ai_model: str | None = None
     nanobanana_api_key: str | None = None
+    nanobanana_model: str | None = None
     paddleocr_api_key: str | None = None
-    claude_api_base_url: str | None = None
+    prompt_ai_api_base_url: str | None = None
     nanobanana_api_base_url: str | None = None
     paddleocr_server_url: str | None = None
 

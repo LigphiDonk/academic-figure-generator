@@ -34,12 +34,13 @@ class UsageService:
         self,
         user_id: UUID,
         project_id: UUID | None = None,
-        api_name: str = "claude",
+        api_name: str = "prompt_ai",
         *,
+        provider: str | None = None,
         api_endpoint: str | None = None,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
-        claude_model: str | None = None,
+        model: str | None = None,
         resolution: str | None = None,
         aspect_ratio: str | None = None,
         request_duration_ms: int | None = None,
@@ -58,7 +59,7 @@ class UsageService:
         project_id:
             Optional project the request is associated with.
         api_name:
-            ``"claude"`` or ``"nanobanana"``.
+            ``"prompt_ai"`` or ``"nanobanana"``.
         key_source:
             ``"platform"`` (system key) or ``"byok"`` (user's own key).
 
@@ -73,10 +74,11 @@ class UsageService:
             user_id=user_id,
             project_id=project_id,
             api_name=api_name,
+            provider=provider,
             api_endpoint=api_endpoint,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            claude_model=claude_model,
+            model=model,
             resolution=resolution,
             aspect_ratio=aspect_ratio,
             request_duration_ms=request_duration_ms,

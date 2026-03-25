@@ -8,11 +8,12 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BadRequestException, NotFoundException
-from app.core.security import encrypt_api_key, hash_password
+from app.core.security import decrypt_api_key, encrypt_api_key, hash_password
 from app.dependencies import get_current_admin_user, get_db
 from app.models.system_settings import SystemSettings
 from app.models.usage import UsageLog
 from app.models.user import User
+from app.schemas.nanobanana import NanoBananaModelsProbeRequest, NanoBananaModelsResponse
 from app.schemas.admin import (
     AdminBalanceUpdate,
     AdminCreditUpdate,
@@ -21,7 +22,20 @@ from app.schemas.admin import (
     AdminUserUpdate,
 )
 from app.schemas.admin_usage import AdminUsageDailyPoint, AdminUsageSummary
+from app.schemas.prompt_ai import PromptAIModelsProbeRequest, PromptAIModelsResponse
 from app.schemas.system_settings import SystemSettingsResponse, SystemSettingsUpdate
+from app.services.nanobanana_service import (
+    NanoBananaConfigLayer,
+    NanoBananaService,
+    get_env_nanobanana_config_layer,
+    resolve_nanobanana_settings,
+)
+from app.services.prompt_ai_service import (
+    PromptAIConfigLayer,
+    PromptAIService,
+    get_env_prompt_ai_config_layer,
+    resolve_prompt_ai_settings,
+)
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -49,11 +63,35 @@ async def _get_or_create_settings(db: AsyncSession) -> SystemSettings:
     return settings
 
 
+def _settings_to_prompt_ai_layer(settings: SystemSettings) -> PromptAIConfigLayer:
+    """提取系统级 Prompt AI 配置层。"""
+    return PromptAIConfigLayer(
+        provider=settings.prompt_ai_provider,
+        api_key=decrypt_api_key(settings.prompt_ai_api_key_enc)
+        if settings.prompt_ai_api_key_enc
+        else None,
+        api_base_url=settings.prompt_ai_api_base_url,
+        model=settings.prompt_ai_model,
+    )
+
+
+def _settings_to_nanobanana_layer(settings: SystemSettings) -> NanoBananaConfigLayer:
+    """提取系统级 NanoBanana 配置层。"""
+    return NanoBananaConfigLayer(
+        api_key=decrypt_api_key(settings.nanobanana_api_key_enc)
+        if settings.nanobanana_api_key_enc
+        else None,
+        api_base_url=settings.nanobanana_api_base_url,
+        model=settings.nanobanana_model,
+    )
+
+
 def _settings_to_response(s: SystemSettings) -> SystemSettingsResponse:
     return SystemSettingsResponse(
-        claude_api_key_set=s.claude_api_key_enc is not None,
-        claude_api_base_url=s.claude_api_base_url,
-        claude_model=s.claude_model,
+        prompt_ai_provider=s.prompt_ai_provider,
+        prompt_ai_api_key_set=s.prompt_ai_api_key_enc is not None,
+        prompt_ai_api_base_url=s.prompt_ai_api_base_url,
+        prompt_ai_model=s.prompt_ai_model,
         nanobanana_api_key_set=s.nanobanana_api_key_enc is not None,
         nanobanana_api_base_url=s.nanobanana_api_base_url,
         nanobanana_model=s.nanobanana_model,
@@ -62,8 +100,8 @@ def _settings_to_response(s: SystemSettings) -> SystemSettingsResponse:
         image_price_cny_2k=float(s.image_price_cny_2k),
         image_price_cny_4k=float(s.image_price_cny_4k),
         usd_cny_rate=float(s.usd_cny_rate),
-        claude_input_usd_per_million=float(s.claude_input_usd_per_million),
-        claude_output_usd_per_million=float(s.claude_output_usd_per_million),
+        prompt_ai_input_usd_per_million=float(s.prompt_ai_input_usd_per_million),
+        prompt_ai_output_usd_per_million=float(s.prompt_ai_output_usd_per_million),
         linuxdo_client_id=s.linuxdo_client_id,
         linuxdo_client_secret_set=s.linuxdo_client_secret_enc is not None,
         linuxdo_redirect_uri=s.linuxdo_redirect_uri,
@@ -82,7 +120,7 @@ def _user_to_admin_response(user: User) -> AdminUserResponse:
         is_admin=user.is_admin,
         balance_cny=float(user.balance_cny),
         nanobanana_images_quota=user.nanobanana_images_quota,
-        claude_tokens_quota=user.claude_tokens_quota,
+        prompt_ai_tokens_quota=user.prompt_ai_tokens_quota,
         created_at=user.created_at,
         updated_at=user.updated_at if hasattr(user, "updated_at") else None,
     )
@@ -114,12 +152,12 @@ async def update_system_settings(
     updates = data.model_dump(exclude_unset=True)
 
     # Handle API key encryption separately
-    if "claude_api_key" in updates:
-        raw_key = updates.pop("claude_api_key")
+    if "prompt_ai_api_key" in updates:
+        raw_key = updates.pop("prompt_ai_api_key")
         if raw_key:
-            settings.claude_api_key_enc = encrypt_api_key(raw_key)
+            settings.prompt_ai_api_key_enc = encrypt_api_key(raw_key)
         else:
-            settings.claude_api_key_enc = None
+            settings.prompt_ai_api_key_enc = None
 
     if "nanobanana_api_key" in updates:
         raw_key = updates.pop("nanobanana_api_key")
@@ -152,6 +190,88 @@ async def update_system_settings(
     await db.flush()
     await db.refresh(settings)
     return _settings_to_response(settings)
+
+
+@router.post("/settings/prompt-ai/models", response_model=PromptAIModelsResponse)
+async def list_system_prompt_ai_models(
+    data: PromptAIModelsProbeRequest,
+    _admin=Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """按管理员当前表单与系统配置探测 Prompt AI 可用模型列表。"""
+    settings = await _get_or_create_settings(db)
+    resolved = resolve_prompt_ai_settings(
+        user_layer=PromptAIConfigLayer(
+            provider=data.prompt_ai_provider or settings.prompt_ai_provider,
+            api_key=data.prompt_ai_api_key,
+            api_base_url=(
+                data.prompt_ai_api_base_url
+                if data.prompt_ai_api_base_url is not None
+                else settings.prompt_ai_api_base_url
+            ),
+            model=settings.prompt_ai_model,
+        ),
+        system_layer=_settings_to_prompt_ai_layer(settings),
+        env_layer=get_env_prompt_ai_config_layer(),
+    )
+
+    if not resolved.api_key:
+        raise BadRequestException("未找到可用的 Prompt AI API Key，请先填写当前表单或系统默认配置。")
+
+    service = PromptAIService(
+        provider=resolved.provider,
+        api_key=resolved.api_key,
+        api_base_url=resolved.api_base_url,
+        model=resolved.model,
+        max_tokens=resolved.max_tokens,
+    )
+    models = await service.list_models()
+    return PromptAIModelsResponse(
+        provider=resolved.provider,
+        models=[
+            {"id": model.id, "display_name": model.display_name}
+            for model in models
+        ],
+    )
+
+
+@router.post("/settings/nanobanana/models", response_model=NanoBananaModelsResponse)
+async def list_system_nanobanana_models(
+    data: NanoBananaModelsProbeRequest,
+    _admin=Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """按管理员当前表单与系统配置探测 NanoBanana 可用模型列表。"""
+    settings = await _get_or_create_settings(db)
+    resolved = resolve_nanobanana_settings(
+        user_layer=NanoBananaConfigLayer(
+            api_key=data.nanobanana_api_key,
+            api_base_url=(
+                data.nanobanana_api_base_url
+                if data.nanobanana_api_base_url is not None
+                else settings.nanobanana_api_base_url
+            ),
+            model=settings.nanobanana_model,
+        ),
+        system_layer=_settings_to_nanobanana_layer(settings),
+        env_layer=get_env_nanobanana_config_layer(),
+    )
+
+    if not resolved.api_key:
+        raise BadRequestException("未找到可用的 NanoBanana API Key，请先填写当前表单或系统默认配置。")
+
+    service = NanoBananaService(
+        api_key=resolved.api_key,
+        api_base_url=resolved.api_base_url,
+        model=resolved.model,
+    )
+    models = await service.list_models()
+    return NanoBananaModelsResponse(
+        models=[
+            {"id": model.id, "display_name": model.display_name}
+            for model in models
+        ],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +335,7 @@ async def get_admin_usage_summary(
                     func.coalesce(func.sum(UsageLog.input_tokens + UsageLog.output_tokens), 0)
                 ).where(
                     UsageLog.billing_period == period,
-                    UsageLog.api_name == "claude",
+                    UsageLog.api_name == "prompt_ai",
                 )
             )
         ).scalar_one()
@@ -232,7 +352,7 @@ async def get_admin_usage_summary(
                 func.coalesce(
                     func.sum(
                         case(
-                            (UsageLog.api_name == "claude", UsageLog.input_tokens + UsageLog.output_tokens),
+                            (UsageLog.api_name == "prompt_ai", UsageLog.input_tokens + UsageLog.output_tokens),
                             else_=0,
                         )
                     ),
@@ -250,7 +370,7 @@ async def get_admin_usage_summary(
             date=r.d.date(),
             cost_cny=float(r.cost or 0),
             images=int(r.images or 0),
-            claude_tokens=int(r.tokens or 0),
+            prompt_ai_tokens=int(r.tokens or 0),
         )
         for r in reversed(rows)
         if r.d is not None
@@ -263,7 +383,7 @@ async def get_admin_usage_summary(
         period_cost_cny=round(period_cost, 6),
         total_cost_cny=round(total_cost, 6),
         period_images=period_images,
-        period_claude_tokens=period_tokens,
+        period_prompt_ai_tokens=period_tokens,
         daily=daily,
     )
 

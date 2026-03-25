@@ -21,6 +21,8 @@ from app.core.security import (
 from app.dependencies import get_current_active_user, get_db
 from app.models.system_settings import SystemSettings
 from app.models.user import User
+from app.schemas.nanobanana import NanoBananaModelsProbeRequest, NanoBananaModelsResponse
+from app.schemas.prompt_ai import PromptAIModelsProbeRequest, PromptAIModelsResponse
 from app.schemas.auth import (
     ChangePassword,
     TokenRefresh,
@@ -29,6 +31,18 @@ from app.schemas.auth import (
     UserRegister,
     UserResponse,
     UserUpdate,
+)
+from app.services.prompt_ai_service import (
+    PromptAIConfigLayer,
+    PromptAIService,
+    get_env_prompt_ai_config_layer,
+    resolve_prompt_ai_settings,
+)
+from app.services.nanobanana_service import (
+    NanoBananaConfigLayer,
+    NanoBananaService,
+    get_env_nanobanana_config_layer,
+    resolve_nanobanana_settings,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,13 +66,16 @@ def _user_to_response(user: User) -> UserResponse:
         default_color_scheme=user.default_color_scheme,
         default_resolution=user.default_resolution,
         default_aspect_ratio=user.default_aspect_ratio,
-        claude_api_key_set=user.claude_api_key_enc is not None,
+        prompt_ai_provider=user.prompt_ai_provider,
+        prompt_ai_api_key_set=user.prompt_ai_api_key_enc is not None,
+        prompt_ai_model=user.prompt_ai_model,
         nanobanana_api_key_set=user.nanobanana_api_key_enc is not None,
+        nanobanana_model=user.nanobanana_model,
         paddleocr_api_key_set=user.paddleocr_token_enc is not None,
-        claude_api_base_url=user.claude_api_base_url,
+        prompt_ai_api_base_url=user.prompt_ai_api_base_url,
         nanobanana_api_base_url=user.nanobanana_api_base_url,
         paddleocr_server_url=user.paddleocr_server_url,
-        claude_tokens_quota=user.claude_tokens_quota,
+        prompt_ai_tokens_quota=user.prompt_ai_tokens_quota,
         nanobanana_images_quota=user.nanobanana_images_quota,
         linuxdo_id=user.linuxdo_id,
         linuxdo_username=user.linuxdo_username,
@@ -71,6 +88,39 @@ def _build_tokens(user_id: str) -> tuple[str, str]:
     """Create an access + refresh token pair for the given user id."""
     data = {"sub": str(user_id)}
     return create_access_token(data), create_refresh_token(data)
+
+
+async def _get_system_prompt_ai_layer(db: AsyncSession) -> PromptAIConfigLayer:
+    """读取系统级 Prompt AI 配置。"""
+    result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
+    settings = result.scalar_one_or_none()
+    if settings is None:
+        return PromptAIConfigLayer()
+
+    return PromptAIConfigLayer(
+        provider=settings.prompt_ai_provider,
+        api_key=decrypt_api_key(settings.prompt_ai_api_key_enc)
+        if settings.prompt_ai_api_key_enc
+        else None,
+        api_base_url=settings.prompt_ai_api_base_url,
+        model=settings.prompt_ai_model,
+    )
+
+
+async def _get_system_nanobanana_layer(db: AsyncSession) -> NanoBananaConfigLayer:
+    """读取系统级 NanoBanana 配置。"""
+    result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
+    settings = result.scalar_one_or_none()
+    if settings is None:
+        return NanoBananaConfigLayer()
+
+    return NanoBananaConfigLayer(
+        api_key=decrypt_api_key(settings.nanobanana_api_key_enc)
+        if settings.nanobanana_api_key_enc
+        else None,
+        api_base_url=settings.nanobanana_api_base_url,
+        model=settings.nanobanana_model,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -167,12 +217,12 @@ async def update_me(
     updates = data.model_dump(exclude_unset=True)
 
     # Handle API key encryption separately
-    if "claude_api_key" in updates:
-        raw_key = updates.pop("claude_api_key")
+    if "prompt_ai_api_key" in updates:
+        raw_key = updates.pop("prompt_ai_api_key")
         if raw_key:
-            user.claude_api_key_enc = encrypt_api_key(raw_key)
+            user.prompt_ai_api_key_enc = encrypt_api_key(raw_key)
         else:
-            user.claude_api_key_enc = None
+            user.prompt_ai_api_key_enc = None
 
     if "nanobanana_api_key" in updates:
         raw_key = updates.pop("nanobanana_api_key")
@@ -215,6 +265,96 @@ async def change_password(
     db.add(user)
     await db.flush()
     return {"message": "密码修改成功"}
+
+
+@router.post("/me/prompt-ai/models", response_model=PromptAIModelsResponse)
+async def list_my_prompt_ai_models(
+    data: PromptAIModelsProbeRequest,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """按当前用户上下文探测 Prompt AI 可用模型列表。"""
+    resolved = resolve_prompt_ai_settings(
+        user_layer=PromptAIConfigLayer(
+            provider=data.prompt_ai_provider or user.prompt_ai_provider,
+            api_key=data.prompt_ai_api_key
+            or (
+                decrypt_api_key(user.prompt_ai_api_key_enc)
+                if user.prompt_ai_api_key_enc
+                else None
+            ),
+            api_base_url=(
+                data.prompt_ai_api_base_url
+                if data.prompt_ai_api_base_url is not None
+                else user.prompt_ai_api_base_url
+            ),
+            model=user.prompt_ai_model,
+        ),
+        system_layer=await _get_system_prompt_ai_layer(db),
+        env_layer=get_env_prompt_ai_config_layer(),
+    )
+
+    if not resolved.api_key:
+        raise BadRequestException("未找到可用的 Prompt AI API Key，请先填写当前表单或已保存配置。")
+
+    service = PromptAIService(
+        provider=resolved.provider,
+        api_key=resolved.api_key,
+        api_base_url=resolved.api_base_url,
+        model=resolved.model,
+        max_tokens=resolved.max_tokens,
+    )
+    models = await service.list_models()
+    return PromptAIModelsResponse(
+        provider=resolved.provider,
+        models=[
+            {"id": model.id, "display_name": model.display_name}
+            for model in models
+        ],
+    )
+
+
+@router.post("/me/nanobanana/models", response_model=NanoBananaModelsResponse)
+async def list_my_nanobanana_models(
+    data: NanoBananaModelsProbeRequest,
+    user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """按当前用户上下文探测 NanoBanana 可用模型列表。"""
+    resolved = resolve_nanobanana_settings(
+        user_layer=NanoBananaConfigLayer(
+            api_key=data.nanobanana_api_key
+            or (
+                decrypt_api_key(user.nanobanana_api_key_enc)
+                if user.nanobanana_api_key_enc
+                else None
+            ),
+            api_base_url=(
+                data.nanobanana_api_base_url
+                if data.nanobanana_api_base_url is not None
+                else user.nanobanana_api_base_url
+            ),
+            model=user.nanobanana_model,
+        ),
+        system_layer=await _get_system_nanobanana_layer(db),
+        env_layer=get_env_nanobanana_config_layer(),
+    )
+
+    if not resolved.api_key:
+        raise BadRequestException("未找到可用的 NanoBanana API Key，请先填写当前表单或已保存配置。")
+
+    service = NanoBananaService(
+        api_key=resolved.api_key,
+        api_base_url=resolved.api_base_url,
+        model=resolved.model,
+    )
+    models = await service.list_models()
+    return NanoBananaModelsResponse(
+        models=[
+            {"id": model.id, "display_name": model.display_name}
+            for model in models
+        ],
+    )
 
 
 # ---------------------------------------------------------------------------

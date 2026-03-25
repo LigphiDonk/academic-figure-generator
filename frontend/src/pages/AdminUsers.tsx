@@ -42,7 +42,7 @@ interface AdminUser {
     is_admin: boolean;
     balance_cny: number;
     nanobanana_images_quota: number;
-    claude_tokens_quota: number;
+    prompt_ai_tokens_quota: number;
     created_at: string;
     updated_at: string | null;
 }
@@ -54,8 +54,8 @@ type AdminUsageSummary = {
     period_cost_cny: number;
     total_cost_cny: number;
     period_images: number;
-    period_claude_tokens: number;
-    daily: Array<{ date: string; cost_cny: number; images: number; claude_tokens: number }>;
+    period_prompt_ai_tokens: number;
+    daily: Array<{ date: string; cost_cny: number; images: number; prompt_ai_tokens: number }>;
 };
 
 export function AdminUsers() {
@@ -312,8 +312,8 @@ export function AdminUsers() {
                             <div className="text-lg font-bold mt-1">{summary.period_images}</div>
                         </div>
                         <div className="rounded-md border p-3">
-                            <div className="text-xs text-muted-foreground">本期 Claude Tokens</div>
-                            <div className="text-lg font-bold mt-1">{summary.period_claude_tokens.toLocaleString()}</div>
+                            <div className="text-xs text-muted-foreground">本期提示词生成 Tokens</div>
+                            <div className="text-lg font-bold mt-1">{summary.period_prompt_ai_tokens.toLocaleString()}</div>
                         </div>
                     </div>
 

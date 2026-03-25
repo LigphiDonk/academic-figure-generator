@@ -19,21 +19,27 @@ class SystemSettings(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
 
-    # Claude API
-    claude_api_key_enc: Mapped[str | None] = mapped_column(
+    # Prompt AI
+    prompt_ai_provider: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="anthropic",
+        comment="System default Prompt AI provider",
+    )
+    prompt_ai_api_key_enc: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
-        comment="AES-256 encrypted system Claude API key",
+        comment="AES-256 encrypted system Prompt AI API key",
     )
-    claude_api_base_url: Mapped[str | None] = mapped_column(
+    prompt_ai_api_base_url: Mapped[str | None] = mapped_column(
         String(500),
         nullable=True,
-        comment="Custom Claude API base URL (e.g. proxy)",
+        comment="Custom Prompt AI API base URL",
     )
-    claude_model: Mapped[str | None] = mapped_column(
+    prompt_ai_model: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
-        comment="Claude model override",
+        comment="Prompt AI model override",
     )
 
     # NanoBanana API
@@ -85,17 +91,17 @@ class SystemSettings(Base, TimestampMixin):
         default=Decimal("7.2000"),
         comment="USD->CNY conversion rate for billing",
     )
-    claude_input_usd_per_million: Mapped[Decimal] = mapped_column(
+    prompt_ai_input_usd_per_million: Mapped[Decimal] = mapped_column(
         Numeric(10, 4),
         nullable=False,
         default=Decimal("3.0000"),
-        comment="Claude input price (USD per 1M tokens)",
+        comment="Prompt AI input price (USD per 1M tokens)",
     )
-    claude_output_usd_per_million: Mapped[Decimal] = mapped_column(
+    prompt_ai_output_usd_per_million: Mapped[Decimal] = mapped_column(
         Numeric(10, 4),
         nullable=False,
         default=Decimal("15.0000"),
-        comment="Claude output price (USD per 1M tokens)",
+        comment="Prompt AI output price (USD per 1M tokens)",
     )
 
     # Linux DO OAuth

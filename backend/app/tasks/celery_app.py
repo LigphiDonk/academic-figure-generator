@@ -2,7 +2,7 @@
 Celery application configuration for academic-figure-generator.
 
 Two queues:
-  - prompts: Claude API calls for prompt generation (CPU-light, IO-heavy)
+  - prompts: Prompt AI calls for prompt generation (CPU-light, IO-heavy)
   - images:  NanoBanana API calls for image generation (long-running, IO-heavy)
 
 Run workers with:

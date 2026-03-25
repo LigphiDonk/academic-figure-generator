@@ -108,7 +108,7 @@ class PromptService:
         }
 
     # ------------------------------------------------------------------
-    # Batch create (used by Celery tasks after Claude responds)
+    # Batch create (used by Celery tasks after Prompt AI responds)
     # ------------------------------------------------------------------
 
     async def create_prompts_from_figures(
@@ -117,10 +117,11 @@ class PromptService:
         user_id: UUID,
         document_id: UUID | None,
         figures: list[dict],
-        claude_model: str | None = None,
+        generator_provider: str = "anthropic",
+        generator_model: str | None = None,
         task_id: str | None = None,
     ) -> list[Prompt]:
-        """Create Prompt records from a list of Claude-generated figure dicts.
+        """Create Prompt records from a list of AI-generated figure dicts.
 
         Parameters
         ----------
@@ -131,8 +132,10 @@ class PromptService:
         document_id:
             Optional source document.
         figures:
-            List of figure dicts as returned by ``ClaudeService``.
-        claude_model:
+            List of figure dicts as returned by ``PromptAIService``.
+        generator_provider:
+            Provider name used for generation.
+        generator_model:
             Model name used for generation.
         task_id:
             Celery task ID for status tracking.
@@ -158,7 +161,8 @@ class PromptService:
                     "titles": fig.get("source_section_titles", []),
                     "rationale": fig.get("rationale", ""),
                 },
-                claude_model=claude_model,
+                generator_provider=generator_provider,
+                generator_model=generator_model,
                 generation_task_id=task_id,
                 generation_status="completed",
             )

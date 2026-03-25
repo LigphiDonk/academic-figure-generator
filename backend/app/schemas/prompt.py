@@ -28,7 +28,8 @@ class PromptResponse(BaseModel):
     suggested_figure_type: str | None
     suggested_aspect_ratio: str | None
     source_sections: dict | list | None
-    claude_model: str | None
+    generator_provider: str
+    generator_model: str | None
     generation_status: str
     created_at: datetime
     updated_at: datetime | None
