@@ -1,7 +1,10 @@
+import ast
 from functools import lru_cache
+import json
+from typing import Annotated
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, NoDecode
 
 
 class Settings(BaseSettings):
@@ -54,17 +57,23 @@ class Settings(BaseSettings):
     # Encryption
     ENCRYPTION_MASTER_KEY: str
 
-    # Claude API
-    CLAUDE_API_KEY: str = ""
-    CLAUDE_MODEL: str = "claude-sonnet-4-20250514"
-    CLAUDE_MAX_TOKENS: int = 8192
+    # Prompt AI
+    PROMPT_AI_PROVIDER: str = "anthropic"
+    PROMPT_AI_API_KEY: str = ""
+    PROMPT_AI_API_BASE_URL: str = ""
+    PROMPT_AI_MODEL: str = "claude-sonnet-4-20250514"
+    PROMPT_AI_MAX_TOKENS: int = 8192
 
     # NanoBanana API
     NANOBANANA_API_KEY: str = ""
     NANOBANANA_API_BASE: str = "https://api.keepgo.icu"
+    NANOBANANA_MODEL: str = "gemini-3-pro-image-preview"
 
     # CORS
-    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]
+    CORS_ORIGINS: Annotated[list[str], NoDecode] = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ]
 
     # Rate Limiting
     RATE_LIMIT_DEFAULT: str = "100/minute"
@@ -85,6 +94,43 @@ class Settings(BaseSettings):
             prefix = f"/{prefix}"
         prefix = prefix.rstrip("/")
         return prefix or "/api/v1"
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def _normalize_cors_origins(cls, value: object) -> list[str]:
+        """兼容 JSON、Python 列表字面量与逗号分隔格式。"""
+        if value is None:
+            return []
+
+        if isinstance(value, (list, tuple, set)):
+            return [str(item).strip() for item in value if str(item).strip()]
+
+        if not isinstance(value, str):
+            return [str(value).strip()] if str(value).strip() else []
+
+        raw = value.strip()
+        if not raw:
+            return []
+
+        for parser in (json.loads, ast.literal_eval):
+            try:
+                parsed = parser(raw)
+            except (json.JSONDecodeError, SyntaxError, ValueError):
+                continue
+
+            if isinstance(parsed, (list, tuple, set)):
+                return [str(item).strip() for item in parsed if str(item).strip()]
+            if isinstance(parsed, str) and parsed.strip():
+                return [parsed.strip()]
+
+        if raw.startswith("[") and raw.endswith("]"):
+            raw = raw[1:-1].strip()
+
+        return [
+            item.strip().strip('"').strip("'")
+            for item in raw.split(",")
+            if item.strip().strip('"').strip("'")
+        ]
 
     def get_jwt_secret(self) -> str:
         """Return JWT secret key, falling back to SECRET_KEY if not set."""

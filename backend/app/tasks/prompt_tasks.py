@@ -1,10 +1,10 @@
 """
-Celery tasks: parse uploaded documents and generate figure prompts via Claude API.
+Celery tasks: parse uploaded documents and generate figure prompts via Prompt AI.
 
 Flow (generate_prompts_task):
   1. Load document sections from the Document.sections JSONB field (sync session).
-  2. Build Claude API request using the academic-figure system prompt.
-  3. Call Claude API via httpx (synchronous client – no asyncio in Celery).
+  2. Build Prompt AI request using the academic-figure system prompt.
+  3. Call Prompt AI via synchronous httpx client.
   4. Parse the JSON array response into individual Prompt records.
   5. Persist Prompt rows (table: prompts).
 
@@ -23,7 +23,7 @@ Schema reference (from app/models/):
               page_count, storage_path, file_type, updated_at
   prompts:    id, project_id, document_id, user_id, figure_number, title,
               original_prompt, suggested_figure_type, suggested_aspect_ratio,
-              generation_status, claude_model, created_at, updated_at
+              generation_status, generator_model, created_at, updated_at
 """
 
 from __future__ import annotations
@@ -31,7 +31,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time
 import traceback
 import uuid
 from datetime import UTC, datetime
@@ -44,24 +43,30 @@ from celery.exceptions import MaxRetriesExceededError, SoftTimeLimitExceeded
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.billing import compute_claude_cost_usd, usd_to_cny
+from app.core.billing import compute_prompt_ai_cost_usd, usd_to_cny
 from app.core.prompts.color_schemes import PRESET_COLOR_SCHEMES, OKABE_ITO
 from app.core.prompts.figure_types import FIGURE_TYPES
 from app.core.prompts.system_prompt import ACADEMIC_FIGURE_SYSTEM_PROMPT, TEMPLATE_FIGURE_SYSTEM_PROMPT
 from app.core.security import decrypt_api_key
+from app.services.prompt_ai_service import (
+    PromptAIConfigLayer,
+    PromptAIService,
+    resolve_prompt_ai_settings,
+)
 from app.tasks.celery_app import celery_app
 from app.tasks.db import _get_session
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Claude API helpers
+# Prompt AI helpers
 # ---------------------------------------------------------------------------
 
-CLAUDE_API_URL = "https://api.anthropic.com/v1/messages"
-CLAUDE_MODEL: str = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-20250514")
-CLAUDE_MAX_TOKENS: int = int(os.environ.get("CLAUDE_MAX_TOKENS", "8192"))
-CLAUDE_API_KEY: str = os.environ.get("CLAUDE_API_KEY", "")
+PROMPT_AI_PROVIDER: str = os.environ.get("PROMPT_AI_PROVIDER", "anthropic")
+PROMPT_AI_API_KEY: str = os.environ.get("PROMPT_AI_API_KEY", "")
+PROMPT_AI_API_BASE_URL: str = os.environ.get("PROMPT_AI_API_BASE_URL", "")
+PROMPT_AI_MODEL: str = os.environ.get("PROMPT_AI_MODEL", "claude-sonnet-4-20250514")
+PROMPT_AI_MAX_TOKENS: int = int(os.environ.get("PROMPT_AI_MAX_TOKENS", "8192"))
 
 
 def _build_user_prompt(
@@ -71,7 +76,7 @@ def _build_user_prompt(
     user_request: str | None,
     max_figures: int | None,
 ) -> str:
-    """Construct the user-facing message sent to Claude."""
+    """Construct the user-facing message sent to Prompt AI."""
     type_hint = ""
     if figure_types:
         type_descriptions = [
@@ -158,57 +163,62 @@ def _build_template_user_prompt(
     )
 
 
-def _call_claude_api(
-    user_prompt: str,
-    api_key: str,
-    api_url: str,
-    model: str,
-    max_tokens: int,
-    timeout: float = 210.0,
-    system_prompt: str = ACADEMIC_FIGURE_SYSTEM_PROMPT,
-) -> tuple[str, int, int, int, int]:
-    """
-    Synchronously call the Claude Messages API.
+def _escape_control_chars_inside_json_strings(raw_text: str) -> str:
+    """仅修复 JSON 字符串值内部的未转义控制字符。"""
+    repaired: list[str] = []
+    in_string = False
+    escaping = False
+    changed = False
 
-    Returns:
-      (text, input_tokens, output_tokens, status_code, duration_ms)
-    Raises httpx.HTTPStatusError on 4xx/5xx.
-    """
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-    }
-    payload = {
-        "model": model,
-        "max_tokens": max_tokens,
-        "system": system_prompt,
-        "messages": [{"role": "user", "content": user_prompt}],
-    }
+    for char in raw_text:
+        if in_string:
+            if escaping:
+                repaired.append(char)
+                escaping = False
+                continue
 
-    with httpx.Client(timeout=timeout) as client:
-        t0 = time.perf_counter()
-        response = client.post(api_url, headers=headers, json=payload)
-        duration_ms = int((time.perf_counter() - t0) * 1000)
-        response.raise_for_status()
-        data = response.json()
+            if char == "\\":
+                repaired.append(char)
+                escaping = True
+                continue
 
-    usage = data.get("usage") or {}
-    input_tokens = int(usage.get("input_tokens") or 0)
-    output_tokens = int(usage.get("output_tokens") or 0)
+            if char == '"':
+                repaired.append(char)
+                in_string = False
+                continue
 
-    for block in data.get("content", []):
-        if block.get("type") == "text":
-            return block["text"], input_tokens, output_tokens, int(response.status_code), duration_ms
+            if char == "\n":
+                repaired.append("\\n")
+                changed = True
+                continue
+            if char == "\r":
+                repaired.append("\\r")
+                changed = True
+                continue
+            if char == "\t":
+                repaired.append("\\t")
+                changed = True
+                continue
+            if ord(char) < 0x20:
+                repaired.append(f"\\u{ord(char):04x}")
+                changed = True
+                continue
+        else:
+            if char == '"':
+                in_string = True
 
-    raise ValueError(f"Unexpected Claude API response structure: {data}")
+        repaired.append(char)
+
+    if not changed:
+        return raw_text
+    return "".join(repaired)
 
 
 def _parse_figure_prompts(raw_text: str) -> list[dict[str, Any]]:
     """
-    Extract the JSON array from Claude's response text.
+    Extract the JSON array from Prompt AI response text.
 
-    Claude sometimes wraps the JSON in markdown code fences; strip them.
+    Prompt AI providers sometimes wrap JSON in markdown code fences; strip them.
     """
     text = raw_text.strip()
     if text.startswith("```"):
@@ -218,45 +228,42 @@ def _parse_figure_prompts(raw_text: str) -> list[dict[str, Any]]:
             inner_lines = inner_lines[:-1]
         text = "\n".join(inner_lines).strip()
 
-    figures = json.loads(text)
+    try:
+        figures = json.loads(text)
+    except json.JSONDecodeError:
+        repaired_text = _escape_control_chars_inside_json_strings(text)
+        if repaired_text == text:
+            raise
+        logger.warning("Repairing Prompt AI figure JSON with escaped control characters")
+        figures = json.loads(repaired_text)
+
     if not isinstance(figures, list):
-        raise ValueError(f"Expected JSON array from Claude, got {type(figures)}")
+        raise ValueError(f"Expected JSON array from Prompt AI, got {type(figures)}")
     return figures
 
 
-def _normalize_claude_api_url(base_or_full: str | None) -> str:
-    """Normalize Claude API base URL or full messages URL to a messages endpoint."""
-    if not base_or_full:
-        return CLAUDE_API_URL
-    url = base_or_full.strip()
-    if not url:
-        return CLAUDE_API_URL
-    url = url.rstrip("/")
-    if url.endswith("/v1/messages"):
-        return url
-    return f"{url}/v1/messages"
-
-
-def _get_system_claude_settings(db: Session) -> tuple[str | None, str | None, str | None]:
-    """Fetch system Claude settings (encrypted key + base URL + model) from DB."""
+def _get_system_prompt_ai_settings(
+    db: Session,
+) -> tuple[str | None, str | None, str | None, str | None]:
+    """Fetch system Prompt AI settings (provider + encrypted key + base URL + model)."""
     row = db.execute(
         text(
-            "SELECT claude_api_key_enc, claude_api_base_url, claude_model "
+            "SELECT prompt_ai_provider, prompt_ai_api_key_enc, prompt_ai_api_base_url, prompt_ai_model "
             "FROM system_settings WHERE id = 1"
         )
     ).fetchone()
     if not row:
-        return None, None, None
-    return row[0], row[1], row[2]
+        return None, None, None, None
+    return row[0], row[1], row[2], row[3]
 
 def _get_pricing(db: Session) -> tuple[Decimal, Decimal, Decimal, Decimal]:
     """Fetch pricing from system_settings with safe defaults.
 
-    Returns: (usd_cny_rate, image_price_cny, claude_in_usd_per_m, claude_out_usd_per_m)
+    Returns: (usd_cny_rate, image_price_cny, prompt_ai_in_usd_per_m, prompt_ai_out_usd_per_m)
     """
     row = db.execute(
         text(
-            "SELECT usd_cny_rate, image_price_cny, claude_input_usd_per_million, claude_output_usd_per_million "
+            "SELECT usd_cny_rate, image_price_cny, prompt_ai_input_usd_per_million, prompt_ai_output_usd_per_million "
             "FROM system_settings WHERE id = 1"
         )
     ).fetchone()
@@ -264,22 +271,23 @@ def _get_pricing(db: Session) -> tuple[Decimal, Decimal, Decimal, Decimal]:
         return Decimal("7.2"), Decimal("1.5"), Decimal("3.0"), Decimal("15.0")
     usd_cny_rate = Decimal(str(row[0] if row[0] is not None else "7.2"))
     image_price_cny = Decimal(str(row[1] if row[1] is not None else "1.5"))
-    claude_in = Decimal(str(row[2] if row[2] is not None else "3.0"))
-    claude_out = Decimal(str(row[3] if row[3] is not None else "15.0"))
-    return usd_cny_rate, image_price_cny, claude_in, claude_out
+    prompt_ai_in = Decimal(str(row[2] if row[2] is not None else "3.0"))
+    prompt_ai_out = Decimal(str(row[3] if row[3] is not None else "15.0"))
+    return usd_cny_rate, image_price_cny, prompt_ai_in, prompt_ai_out
 
 
 def _current_billing_period() -> str:
     return datetime.utcnow().strftime("%Y-%m")
 
 
-def _log_claude_usage(
+def _log_prompt_ai_usage(
     db: Session,
     *,
     user_id: str,
     project_id: str,
+    provider: str,
     api_endpoint: str,
-    claude_model: str,
+    model: str,
     key_source: str,
     billing_period: str,
     input_tokens: int | None = None,
@@ -291,24 +299,24 @@ def _log_claude_usage(
     estimated_cost_usd: Decimal | None = None,
     estimated_cost_cny: Decimal | None = None,
 ) -> None:
-    """Best-effort usage log entry for Claude."""
+    """Best-effort usage log entry for Prompt AI."""
     try:
         db.execute(
             text(
                 """
                 INSERT INTO usage_logs (
                     id, user_id, project_id,
-                    api_name, api_endpoint,
+                    api_name, provider, api_endpoint,
                     input_tokens, output_tokens,
-                    claude_model, request_duration_ms,
+                    model, request_duration_ms,
                     key_source, is_success, status_code, error_message,
                     estimated_cost_usd, estimated_cost_cny,
                     billing_period, created_at
                 ) VALUES (
                     :id, :user_id, :project_id,
-                    'claude', :api_endpoint,
+                    'prompt_ai', :provider, :api_endpoint,
                     :input_tokens, :output_tokens,
-                    :claude_model, :request_duration_ms,
+                    :model, :request_duration_ms,
                     :key_source, :is_success, :status_code, :error_message,
                     :estimated_cost_usd, :estimated_cost_cny,
                     :billing_period, :now
@@ -319,10 +327,11 @@ def _log_claude_usage(
                 "id": str(uuid.uuid4()),
                 "user_id": user_id,
                 "project_id": project_id,
+                "provider": provider,
                 "api_endpoint": api_endpoint[:200] if api_endpoint else None,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
-                "claude_model": claude_model,
+                "model": model,
                 "request_duration_ms": request_duration_ms,
                 "key_source": key_source,
                 "is_success": is_success,
@@ -335,7 +344,7 @@ def _log_claude_usage(
             },
         )
     except Exception:
-        logger.exception("Failed to log Claude usage")
+        logger.exception("Failed to log Prompt AI usage")
 
 
 # ---------------------------------------------------------------------------
@@ -526,7 +535,7 @@ def generate_prompts_task(
         custom_colors:   Optional dict of custom hex colors overriding the preset.
         figure_types:    Optional list of preferred figure type slugs.
         section_indices: Optional list of section indices to process (0-based).
-                         When provided, only those sections are sent to Claude.
+                         When provided, only those sections are sent to Prompt AI.
 
     Returns:
         dict with keys: document_id, prompt_ids, figure_count.
@@ -598,43 +607,80 @@ def generate_prompts_task(
             base_colors.update(custom_colors)
 
         # ------------------------------------------------------------------
-        # 4. Resolve API key (BYOK > env key > system key)
+        # 4. Resolve Prompt AI settings (user > system > env)
         # ------------------------------------------------------------------
-        system_key_enc, system_api_base_url, system_model = _get_system_claude_settings(db)
-        effective_api_url = _normalize_claude_api_url(system_api_base_url)
-        effective_model = system_model or CLAUDE_MODEL
-        effective_max_tokens = CLAUDE_MAX_TOKENS
+        (
+            system_provider,
+            system_key_enc,
+            system_api_base_url,
+            system_model,
+        ) = _get_system_prompt_ai_settings(db)
         billing_period = _current_billing_period()
-        usd_cny_rate, _image_price_cny, claude_in_usd_per_m, claude_out_usd_per_m = _get_pricing(db)
+        (
+            usd_cny_rate,
+            _image_price_cny,
+            prompt_ai_in_usd_per_m,
+            prompt_ai_out_usd_per_m,
+        ) = _get_pricing(db)
 
         result = db.execute(
-            text("SELECT claude_api_key_enc FROM users WHERE id = :uid"),
+            text(
+                "SELECT prompt_ai_provider, prompt_ai_api_key_enc, "
+                "prompt_ai_api_base_url, prompt_ai_model "
+                "FROM users WHERE id = :uid"
+            ),
             {"uid": user_id},
         )
         byok_row = result.fetchone()
-        encrypted_key = byok_row[0] if byok_row else None
+        user_provider = byok_row[0] if byok_row else None
+        user_key_enc = byok_row[1] if byok_row else None
+        user_api_base_url = byok_row[2] if byok_row else None
+        user_model = byok_row[3] if byok_row else None
 
-        if encrypted_key:
-            api_key = decrypt_api_key(encrypted_key)
-            key_source = "byok"
-            logger.info("Using BYOK Claude key for user_id=%s", user_id)
-        elif CLAUDE_API_KEY:
-            api_key = CLAUDE_API_KEY
-            key_source = "platform"
-            logger.info("Using platform Claude key from env")
-        elif system_key_enc:
-            api_key = decrypt_api_key(system_key_enc)
-            key_source = "platform"
-            logger.info("Using platform Claude key from system settings")
-        else:
+        resolved_settings = resolve_prompt_ai_settings(
+            user_layer=PromptAIConfigLayer(
+                provider=user_provider,
+                api_key=decrypt_api_key(user_key_enc) if user_key_enc else None,
+                api_base_url=user_api_base_url,
+                model=user_model,
+                max_tokens=PROMPT_AI_MAX_TOKENS,
+            ),
+            system_layer=PromptAIConfigLayer(
+                provider=system_provider,
+                api_key=decrypt_api_key(system_key_enc) if system_key_enc else None,
+                api_base_url=system_api_base_url,
+                model=system_model,
+                max_tokens=PROMPT_AI_MAX_TOKENS,
+            ),
+            env_layer=PromptAIConfigLayer(
+                provider=PROMPT_AI_PROVIDER,
+                api_key=PROMPT_AI_API_KEY,
+                api_base_url=PROMPT_AI_API_BASE_URL,
+                model=PROMPT_AI_MODEL,
+                max_tokens=PROMPT_AI_MAX_TOKENS,
+            ),
+        )
+        if not resolved_settings.api_key:
             raise ValueError(
-                "No Claude API key available: set CLAUDE_API_KEY env var, "
+                "No Prompt AI API key available: set PROMPT_AI_API_KEY env var, "
                 "or configure system key in admin settings, "
                 "or add a BYOK key for this user."
             )
+        prompt_ai_service = PromptAIService(
+            provider=resolved_settings.provider,
+            api_key=resolved_settings.api_key,
+            api_base_url=resolved_settings.api_base_url,
+            model=resolved_settings.model,
+            max_tokens=resolved_settings.max_tokens,
+        )
+        effective_provider = prompt_ai_service.config.provider
+        effective_api_url = prompt_ai_service.api_url
+        effective_model = prompt_ai_service.config.model
+        effective_max_tokens = prompt_ai_service.config.max_tokens
+        key_source = resolved_settings.key_source
 
         # ------------------------------------------------------------------
-        # 5. Build and send Claude API request
+        # 5. Build and send Prompt AI request
         # ------------------------------------------------------------------
         if template_mode:
             user_prompt = _build_template_user_prompt(
@@ -654,35 +700,40 @@ def generate_prompts_task(
             active_system_prompt = ACADEMIC_FIGURE_SYSTEM_PROMPT
 
         logger.info(
-            "Calling Claude API | url=%s model=%s max_tokens=%d template_mode=%s",
+            "Calling Prompt AI | provider=%s url=%s model=%s max_tokens=%d template_mode=%s",
+            effective_provider,
             effective_api_url,
             effective_model,
             effective_max_tokens,
             template_mode,
         )
-        raw_text, input_tokens, output_tokens, status_code, duration_ms = _call_claude_api(
-            user_prompt=user_prompt,
-            api_key=api_key,
-            api_url=effective_api_url,
-            model=effective_model,
-            max_tokens=effective_max_tokens,
+        prompt_ai_result = prompt_ai_service.generate_completion(
             system_prompt=active_system_prompt,
+            user_prompt=user_prompt,
+            timeout=210.0,
+            wrap_errors=False,
         )
+        raw_text = prompt_ai_result.text
+        input_tokens = prompt_ai_result.input_tokens
+        output_tokens = prompt_ai_result.output_tokens
+        status_code = prompt_ai_result.status_code
+        duration_ms = prompt_ai_result.duration_ms
 
-        estimated_cost_usd = compute_claude_cost_usd(
+        estimated_cost_usd = compute_prompt_ai_cost_usd(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            input_usd_per_million=claude_in_usd_per_m,
-            output_usd_per_million=claude_out_usd_per_m,
+            input_usd_per_million=prompt_ai_in_usd_per_m,
+            output_usd_per_million=prompt_ai_out_usd_per_m,
         )
         estimated_cost_cny = usd_to_cny(estimated_cost_usd, usd_cny_rate)
 
-        _log_claude_usage(
+        _log_prompt_ai_usage(
             db,
             user_id=user_id,
             project_id=project_id,
+            provider=effective_provider,
             api_endpoint=effective_api_url,
-            claude_model=effective_model,
+            model=effective_model,
             key_source=key_source,
             billing_period=billing_period,
             input_tokens=input_tokens,
@@ -704,7 +755,7 @@ def generate_prompts_task(
         # 6. Parse response
         # ------------------------------------------------------------------
         figures = _parse_figure_prompts(raw_text)
-        logger.info("Parsed %d figure prompts from Claude response", len(figures))
+        logger.info("Parsed %d figure prompts from Prompt AI response", len(figures))
 
         # ------------------------------------------------------------------
         # 7. Persist each figure prompt into the prompts table
@@ -726,7 +777,8 @@ def generate_prompts_task(
                         suggested_figure_type,
                         suggested_aspect_ratio,
                         generation_status,
-                        claude_model,
+                        generator_provider,
+                        generator_model,
                         created_at, updated_at
                     ) VALUES (
                         :id, :project_id, :document_id, :user_id,
@@ -735,7 +787,8 @@ def generate_prompts_task(
                         :suggested_figure_type,
                         :suggested_aspect_ratio,
                         'completed',
-                        :claude_model,
+                        :generator_provider,
+                        :generator_model,
                         :now, :now
                     )
                     """
@@ -750,7 +803,8 @@ def generate_prompts_task(
                     "original_prompt": fig.get("prompt", ""),
                     "suggested_figure_type": fig.get("figure_type", "overall_framework"),
                     "suggested_aspect_ratio": fig.get("suggested_aspect_ratio", "16:9"),
-                    "claude_model": effective_model,
+                    "generator_provider": effective_provider,
+                    "generator_model": effective_model,
                     "now": now,
                 },
             )
@@ -783,12 +837,13 @@ def generate_prompts_task(
             countdown = 30 * (2 ** self.request.retries)  # 30s, 60s
             raise self.retry(exc=exc, countdown=countdown)
         except MaxRetriesExceededError:
-            _log_claude_usage(
+            _log_prompt_ai_usage(
                 db,
                 user_id=user_id,
                 project_id=project_id,
+                provider=effective_provider if "effective_provider" in locals() else "anthropic",
                 api_endpoint=effective_api_url if "effective_api_url" in locals() else "",
-                claude_model=effective_model if "effective_model" in locals() else "",
+                model=effective_model if "effective_model" in locals() else "",
                 key_source=key_source if "key_source" in locals() else "platform",
                 billing_period=_current_billing_period(),
                 is_success=False,
@@ -806,12 +861,13 @@ def generate_prompts_task(
             "Unexpected error in generate_prompts_task | document_id=%s\n%s",
             document_id, traceback.format_exc(),
         )
-        _log_claude_usage(
+        _log_prompt_ai_usage(
             db,
             user_id=user_id,
             project_id=project_id,
+            provider=effective_provider if "effective_provider" in locals() else "anthropic",
             api_endpoint=effective_api_url if "effective_api_url" in locals() else "",
-            claude_model=effective_model if "effective_model" in locals() else "",
+            model=effective_model if "effective_model" in locals() else "",
             key_source=key_source if "key_source" in locals() else "platform",
             billing_period=_current_billing_period(),
             is_success=False,
