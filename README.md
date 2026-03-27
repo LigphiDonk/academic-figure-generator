@@ -286,6 +286,10 @@ npm run lint    # ESLint 检查
 
 前端开发服务器会自动将 `/api` 请求代理到 `localhost:8000`。
 
+## 致谢
+
+感谢 [Linux DO](https://linux.do/) 社区的支持与帮助 🙏
+
 ## 许可证
 
 本项目基于 [MIT License](./LICENSE) 开源。
