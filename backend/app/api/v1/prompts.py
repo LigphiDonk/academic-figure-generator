@@ -107,6 +107,7 @@ async def generate_prompts(
         figure_types=data.figure_types,
         user_request=data.user_request,
         max_figures=data.max_figures,
+        use_web_references=data.use_web_references,
     )
 
     figures = result_data.get("figures", [])

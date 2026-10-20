@@ -143,6 +143,21 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 首次启动时会自动创建 SQLite 数据库 (`backend/data/app.db`) 和数据目录。
 
+#### 生成配图时查阅公开参考资料
+
+Prompt 生成默认可使用 [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp)
+搜索和读取公开网页，无需 Parallel 账号或 API Key，搜索使用 Fast 模式。
+Claude 仅在需要澄清已有科学概念或术语时查阅资料；论文中的架构、维度和实验结论仍以
+上传章节为准。查阅过的网页 URL 会写入对应 Prompt 的 `source_sections.rationale`。
+查询词和待读取的 URL 会发送给 Parallel；不要用此功能查阅未公开的研究内容。
+
+在后端环境变量或后端 `.env` 中设置 `WEB_REFERENCES_ENABLED=false`，可关闭此集成。
+也可在 `POST /api/v1/projects/{project_id}/prompts/generate` 请求中设置
+`"use_web_references": false`，仅为该次生成关闭。全局关闭后，请求无法重新开启。
+关闭后仍可按原流程基于上传论文生成 Prompt。免费服务有使用限额；查阅失败时不应将其
+标记为已验证资料。`WEB_REFERENCES_TIMEOUT_SECONDS` 默认为 30 秒；已设置的
+Claude Code `MCP_TOOL_TIMEOUT`（毫秒）优先。
+
 ### 4. 启动前端
 
 ```bash
@@ -214,6 +229,8 @@ FastAPI 后端 (localhost:8000)
 | `DEBUG` | 否 | `true` | 调试模式 (启用 API 文档) |
 | `CORS_ORIGINS` | 否 | `["http://localhost:3000","http://localhost:5173"]` | CORS 允许来源 |
 | `MAX_UPLOAD_SIZE_MB` | 否 | `50` | 最大上传文件大小 (MB) |
+| `WEB_REFERENCES_ENABLED` | 否 | `true` | 生成 Prompt 时允许查阅公开科学参考资料 |
+| `WEB_REFERENCES_TIMEOUT_SECONDS` | 否 | `30` | MCP 工具调用超时（0–300 秒，不含 0） |
 
 ## AI 学术配图 Prompt 技能（AI Coding Agent Skill）
 

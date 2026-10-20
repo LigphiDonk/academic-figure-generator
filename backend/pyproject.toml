@@ -23,7 +23,8 @@ dependencies = [
     # SSE
     "sse-starlette>=2.1.0",
     # Claude Agent SDK
-    "claude-agent-sdk>=0.1.0",
+    # Hook-aware string queries are needed for per-generation MCP session IDs.
+    "claude-agent-sdk>=0.1.48",
 ]
 
 [project.optional-dependencies]

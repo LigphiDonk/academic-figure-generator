@@ -13,7 +13,9 @@ import time
 from pathlib import Path
 from typing import Any
 
+from app.config import get_settings
 from app.core.exceptions import ExternalAPIException
+from app.services.reference_search import REFERENCE_INSTRUCTIONS, reference_search_options
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,7 @@ class ClaudeCodeService:
         figure_types: list[str] | None = None,
         user_request: str | None = None,
         max_figures: int | None = None,
+        use_web_references: bool = True,
     ) -> dict:
         """Call Claude via Agent SDK to generate figure prompts.
 
@@ -70,14 +73,24 @@ class ClaudeCodeService:
 
         start_time = time.monotonic()
         result_text = ""
+        settings = get_settings()
+        references_enabled = settings.WEB_REFERENCES_ENABLED and use_web_references
+        search_options = (
+            reference_search_options(settings.WEB_REFERENCES_TIMEOUT_SECONDS)
+            if references_enabled
+            else {}
+        )
+        system_prompt = self.skill_content
+        if references_enabled:
+            system_prompt += "\n" + REFERENCE_INSTRUCTIONS
 
         try:
             async for message in query(
                 prompt=user_prompt,
                 options=ClaudeAgentOptions(
-                    system_prompt=self.skill_content,
-                    allowed_tools=[],  # No tools needed, just text generation
+                    system_prompt=system_prompt,
                     permission_mode="acceptEdits",
+                    **search_options,
                 ),
             ):
                 if isinstance(message, AssistantMessage):
@@ -86,13 +99,17 @@ class ClaudeCodeService:
                             result_text += block.text
                 elif isinstance(message, ResultMessage):
                     logger.info("Claude query completed: %s", message.subtype)
+                    if message.is_error:
+                        raise RuntimeError(f"Claude query failed: {message.subtype}")
+                    # Intermediate assistant text may precede tool calls. Prefer the
+                    # SDK's final answer when parsing the structured figure output.
+                    if message.result:
+                        result_text = message.result
 
         except Exception as exc:
             duration_ms = int((time.monotonic() - start_time) * 1000)
             logger.error("Claude Agent SDK error after %d ms: %s", duration_ms, exc)
-            raise ExternalAPIException(
-                "Claude", f"Agent SDK error: {exc}"
-            ) from exc
+            raise ExternalAPIException("Claude", f"Agent SDK error: {exc}") from exc
 
         duration_ms = int((time.monotonic() - start_time) * 1000)
         figures = self._parse_figures_response(result_text)
@@ -216,7 +233,9 @@ class ClaudeCodeService:
             validated: dict[str, Any] = {
                 "figure_number": fig.get("figure_number", i + 1),
                 "title": fig.get("title", f"Figure {i + 1}"),
-                "suggested_figure_type": fig.get("suggested_figure_type", fig.get("figure_type", "diagram")),
+                "suggested_figure_type": fig.get(
+                    "suggested_figure_type", fig.get("figure_type", "diagram")
+                ),
                 "suggested_aspect_ratio": fig.get("suggested_aspect_ratio", "16:9"),
                 "prompt": fig.get("prompt", ""),
                 "source_section_titles": fig.get("source_section_titles", []),

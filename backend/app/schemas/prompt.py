@@ -11,6 +11,7 @@ class PromptGenerateRequest(BaseModel):
     user_request: str | None = None
     max_figures: int | None = None
     template_mode: bool = False
+    use_web_references: bool = True
 
 
 class PromptResponse(BaseModel):

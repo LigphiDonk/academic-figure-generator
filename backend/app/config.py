@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 # Project root: backend/
@@ -29,6 +29,10 @@ class Settings(BaseSettings):
 
     # Claude Agent SDK (uses ANTHROPIC_API_KEY env var directly)
     ANTHROPIC_API_KEY: str = ""
+
+    # Public scientific-reference lookup while generating figure prompts.
+    WEB_REFERENCES_ENABLED: bool = True
+    WEB_REFERENCES_TIMEOUT_SECONDS: float = Field(default=30, gt=0, le=300)
 
     # NanoBanana / Gemini image generation API
     NANOBANANA_API_KEY: str = ""
